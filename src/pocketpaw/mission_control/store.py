@@ -368,8 +368,11 @@ class FileMissionControlStore:
         if task_id:
             activities = [a for a in activities if a.task_id == task_id]
 
-        # Sort by created_at (most recent first)
-        activities.sort(key=lambda a: a.created_at, reverse=True)
+        # Sort by created_at descending, with insertion order as tiebreaker
+        activities.sort(
+            key=lambda a: (a.created_at, self._activity_seq.get(a.id, 0)),
+            reverse=True,
+        )
         return activities[:limit]
 
     async def get_activity_feed(self, limit: int = 50) -> list[Activity]:

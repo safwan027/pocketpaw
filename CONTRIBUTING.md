@@ -46,10 +46,10 @@ If you're new and want to contribute, check [`good first issue`](https://github.
    ```bash
    uv sync --dev
    ```
-4. **Install pre-commit hooks** (runs ruff lint/format and tests on every commit):
+4. **Install pre-commit hooks** (ruff lint/format on commit, tests on push):
    ```bash
-   uv pip install pre-commit
-   pre-commit install
+   uv tool install pre-commit
+   pre-commit install --hook-type pre-commit --hook-type pre-push
    ```
 5. **Run the app** to verify your setup:
    ```bash
@@ -91,13 +91,16 @@ pre-commit run --all-files
 
 ### Pre-commit hooks
 
-This repo uses [pre-commit](https://pre-commit.com/) to catch issues before they hit CI. The hooks run automatically on `git commit`:
+This repo uses [pre-commit](https://pre-commit.com/) to catch issues before they hit CI:
 
+**On commit** (fast, runs every time):
 1. **ruff** - lints Python files and auto-fixes what it can
 2. **ruff-format** - enforces consistent code formatting
-3. **pytest** - runs the full test suite (excluding E2E)
 
-If a hook fails, the commit is blocked. Fix the issue and try again. To skip hooks in an emergency: `git commit --no-verify` (please don't make this a habit).
+**On push** (runs the full test suite before pushing):
+3. **pytest** - runs all tests excluding E2E
+
+If a hook fails, the action is blocked. Fix the issue and try again.
 
 ## Project structure
 
