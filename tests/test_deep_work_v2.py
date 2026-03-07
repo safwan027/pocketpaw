@@ -13,9 +13,7 @@
 #   8. Deep Work API: POST /projects/{id}/cancel and POST /projects/{id}/tasks/{tid}/retry
 
 import asyncio
-import tempfile
 import uuid
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -50,7 +48,6 @@ from pocketpaw.mission_control.store import (
     FileMissionControlStore,
     reset_mission_control_store,
 )
-
 
 # ============================================================================
 # Shared fixtures
@@ -942,9 +939,7 @@ class TestExecutorTimeout:
         tid = _make_uuid()
         aid = _make_uuid()
         task = _build_mock_task(task_id=tid, timeout_minutes=1, retry_count=0, max_retries=0)
-        task_fresh = _build_mock_task(
-            task_id=tid, timeout_minutes=1, retry_count=0, max_retries=0
-        )
+        task_fresh = _build_mock_task(task_id=tid, timeout_minutes=1, retry_count=0, max_retries=0)
 
         agent = _build_mock_agent(agent_id=aid)
         executor = MCTaskExecutor()
@@ -975,7 +970,7 @@ class TestExecutorTimeout:
             patch.object(executor, "_log_activity", new_callable=AsyncMock),
             patch(
                 "pocketpaw.mission_control.executor.asyncio.wait_for",
-                side_effect=asyncio.TimeoutError(),
+                side_effect=TimeoutError(),
             ),
         ):
             result = await executor.execute_task(tid, aid)
@@ -1284,9 +1279,7 @@ class TestSessionCancel:
         assert result.status == ProjectStatus.CANCELLED
 
     @pytest.mark.asyncio
-    async def test_cancel_works_on_paused_project(
-        self, manager, mock_executor, mock_human_router
-    ):
+    async def test_cancel_works_on_paused_project(self, manager, mock_executor, mock_human_router):
         """cancel() should work on a PAUSED project."""
         project = await self._make_project(manager, ProjectStatus.PAUSED)
         session = self._make_session(manager, mock_executor, mock_human_router)
@@ -1419,9 +1412,7 @@ class TestRetryTaskAPI:
         # The route imports get_deep_work_session from pocketpaw.deep_work inside the
         # function body, so we patch at the pocketpaw.deep_work module level.
         with patch("pocketpaw.deep_work.get_deep_work_session", return_value=mock_session):
-            response = dw_client.post(
-                f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry"
-            )
+            response = dw_client.post(f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry")
 
         assert response.status_code == 200
         data = response.json()
@@ -1446,9 +1437,7 @@ class TestRetryTaskAPI:
 
         project, task = asyncio.get_event_loop().run_until_complete(_setup())
 
-        response = dw_client.post(
-            f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry"
-        )
+        response = dw_client.post(f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry")
 
         assert response.status_code == 400
         assert "blocked" in response.json()["detail"].lower()
@@ -1482,9 +1471,7 @@ class TestRetryTaskAPI:
 
         p1, p2, task = asyncio.get_event_loop().run_until_complete(_setup())
 
-        response = dw_client.post(
-            f"/api/deep-work/projects/{p2.id}/tasks/{task.id}/retry"
-        )
+        response = dw_client.post(f"/api/deep-work/projects/{p2.id}/tasks/{task.id}/retry")
 
         assert response.status_code == 400
         assert "does not belong" in response.json()["detail"]

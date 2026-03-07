@@ -1010,5 +1010,3 @@ async def stop_task(task_id: str) -> dict[str, Any]:
         "task_id": task_id,
         "message": "Task execution stopped",
     }
-
-

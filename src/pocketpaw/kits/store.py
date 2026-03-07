@@ -81,9 +81,7 @@ class FileKitStore:
         try:
             import yaml
         except ImportError as e:
-            raise ImportError(
-                "PyYAML is required for PawKits. Install with: uv add pyyaml"
-            ) from e
+            raise ImportError("PyYAML is required for PawKits. Install with: uv add pyyaml") from e
 
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         return PawKitConfig.model_validate(raw)
@@ -94,9 +92,7 @@ class FileKitStore:
         try:
             import yaml
         except ImportError as e:
-            raise ImportError(
-                "PyYAML is required for PawKits. Install with: uv add pyyaml"
-            ) from e
+            raise ImportError("PyYAML is required for PawKits. Install with: uv add pyyaml") from e
 
         raw = yaml.safe_load(yaml_str)
         return PawKitConfig.model_validate(raw)
@@ -111,9 +107,7 @@ class FileKitStore:
         try:
             import yaml
         except ImportError as e:
-            raise ImportError(
-                "PyYAML is required for PawKits. Install with: uv add pyyaml"
-            ) from e
+            raise ImportError("PyYAML is required for PawKits. Install with: uv add pyyaml") from e
 
         yaml_path = kit_dir / "pawkit.yaml"
         temp_path = yaml_path.with_suffix(".tmp")
@@ -132,9 +126,7 @@ class FileKitStore:
         temp_meta.write_text(json.dumps(meta, indent=2), encoding="utf-8")
         temp_meta.replace(meta_path)
 
-    async def install_kit(
-        self, yaml_str: str, kit_id: str | None = None
-    ) -> InstalledKit:
+    async def install_kit(self, yaml_str: str, kit_id: str | None = None) -> InstalledKit:
         """Install a kit from a YAML string."""
         self._ensure_loaded()
 

@@ -42,7 +42,6 @@ from pocketpaw.mission_control.store import (
     reset_mission_control_store,
 )
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -225,7 +224,7 @@ async def _plan_and_approve(session, manager, planner_result):
 
     # Simulate planning: materialize tasks and set to AWAITING_APPROVAL
     planner_result.project_id = project.id
-    key_to_id = await session._materialize_tasks(project, planner_result.tasks)
+    await session._materialize_tasks(project, planner_result.tasks)
 
     # Create agent team
     for agent_spec in planner_result.team_recommendation:
@@ -280,9 +279,7 @@ class TestFullLifecycle:
         # t1 should have been dispatched (no blockers), t2 should not (blocked by t1)
         executor.execute_task_background.assert_called_once()
 
-    async def test_task_completion_cascades_to_dependents(
-        self, client, session, manager, executor
-    ):
+    async def test_task_completion_cascades_to_dependents(self, client, session, manager, executor):
         """When t1 completes, t2 should be dispatched automatically."""
         result = _make_planner_result()
         project, tasks = await _plan_and_approve(session, manager, result)
@@ -292,7 +289,6 @@ class TestFullLifecycle:
 
         # Mock: executor just records dispatches
         dispatched_task_ids = []
-        original_execute = executor.execute_task_background
 
         async def mock_execute(task_id, agent_id):
             dispatched_task_ids.append(task_id)
@@ -316,9 +312,7 @@ class TestFullLifecycle:
         # t2 should now be dispatched
         assert t2.id in dispatched_task_ids
 
-    async def test_project_completes_when_all_tasks_done(
-        self, client, session, manager, executor
-    ):
+    async def test_project_completes_when_all_tasks_done(self, client, session, manager, executor):
         """Project status should change to COMPLETED when all tasks finish."""
         result = _make_single_task_result()
         project, tasks = await _plan_and_approve(session, manager, result)
@@ -528,9 +522,7 @@ class TestAutoRetry:
 class TestTaskTimeout:
     """Verify tasks with timeout_minutes actually time out."""
 
-    async def test_timeout_triggers_retry_or_blocked(
-        self, client, session, manager, executor
-    ):
+    async def test_timeout_triggers_retry_or_blocked(self, client, session, manager, executor):
         """A task that exceeds its timeout should get error_message set."""
         result = _make_single_task_result(max_retries=0, timeout_minutes=1)
         project, tasks = await _plan_and_approve(session, manager, result)
@@ -676,9 +668,7 @@ class TestManualRetryAPI:
         # Mock scheduler dispatch so it doesn't actually execute
         session.scheduler._dispatch_task = AsyncMock()
 
-        response = await client.post(
-            f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry"
-        )
+        response = await client.post(f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry")
 
         assert response.status_code == 200
         data = response.json()
@@ -694,9 +684,7 @@ class TestManualRetryAPI:
         task = tasks[0]
 
         # Task is ASSIGNED, not BLOCKED
-        response = await client.post(
-            f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry"
-        )
+        response = await client.post(f"/api/deep-work/projects/{project.id}/tasks/{task.id}/retry")
 
         assert response.status_code == 400
         assert "blocked" in response.json()["detail"].lower()
@@ -738,9 +726,7 @@ class TestManualRetryAPI:
 class TestGetPlanAPI:
     """GET /projects/{id}/plan returns structured plan data."""
 
-    async def test_get_plan_returns_tasks_and_levels(
-        self, client, session, manager, executor
-    ):
+    async def test_get_plan_returns_tasks_and_levels(self, client, session, manager, executor):
         """Plan endpoint should return tasks, execution_levels, and progress."""
         result = _make_planner_result()
         project, tasks = await _plan_and_approve(session, manager, result)
@@ -773,15 +759,12 @@ class TestGetPlanAPI:
 class TestSkipTaskAPI:
     """POST /projects/{id}/tasks/{tid}/skip."""
 
-    async def test_skip_task_unblocks_dependents(
-        self, client, session, manager, executor
-    ):
+    async def test_skip_task_unblocks_dependents(self, client, session, manager, executor):
         """Skipping t1 should unblock t2 and set t1 to SKIPPED."""
         result = _make_planner_result()
         project, tasks = await _plan_and_approve(session, manager, result)
 
         t1 = next(t for t in tasks if t.title == "Set up project scaffolding")
-        t2 = next(t for t in tasks if t.title == "Implement API endpoints")
 
         executor.execute_task_background = AsyncMock()
 
@@ -789,9 +772,7 @@ class TestSkipTaskAPI:
         await client.post(f"/api/deep-work/projects/{project.id}/approve")
 
         # Skip t1
-        response = await client.post(
-            f"/api/deep-work/projects/{project.id}/tasks/{t1.id}/skip"
-        )
+        response = await client.post(f"/api/deep-work/projects/{project.id}/tasks/{t1.id}/skip")
 
         assert response.status_code == 200
         data = response.json()
@@ -813,9 +794,7 @@ class TestSkipTaskAPI:
         task_fresh.completed_at = now_iso()
         await manager.save_task(task_fresh)
 
-        response = await client.post(
-            f"/api/deep-work/projects/{project.id}/tasks/{task.id}/skip"
-        )
+        response = await client.post(f"/api/deep-work/projects/{project.id}/tasks/{task.id}/skip")
         assert response.status_code == 400
 
 

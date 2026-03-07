@@ -42,7 +42,7 @@ def _extract_chat_id(session_id: str | None) -> str:
     if not session_id:
         return uuid.uuid4().hex[:12]
     if session_id.startswith(_WS_PREFIX):
-        return session_id[len(_WS_PREFIX):]
+        return session_id[len(_WS_PREFIX) :]
     return session_id
 
 
@@ -333,7 +333,7 @@ async def chat_stop(session_id: str = ""):
         # Derive chat_id from whatever format was given
         raw = session_id
         if raw.startswith(_WS_PREFIX):
-            raw = raw[len(_WS_PREFIX):]
+            raw = raw[len(_WS_PREFIX) :]
         agent_loop.cancel_task(f"websocket:{raw}")
     except Exception:
         pass
