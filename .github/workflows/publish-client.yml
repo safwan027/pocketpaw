@@ -1,5 +1,7 @@
 # Tauri desktop client build and release workflow.
 # Created: 2026-03-09
+# Updated: 2026-03-09 — Fix pre-release boolean coercion, Ubuntu deps,
+#   Rust target simplification, workflow_dispatch tag input, scope signing keys.
 #
 # Triggers on tags matching `client-v*` (e.g., client-v0.1.0-alpha.1).
 # Builds macOS (arm64 + x86_64), Windows (x64), and Linux (x64) binaries.
@@ -16,6 +18,9 @@ on:
       - 'client-v*'
   workflow_dispatch:
     inputs:
+      tag:
+        description: 'Tag to release (e.g., client-v0.1.0-alpha.1)'
+        required: true
       prerelease:
         description: 'Mark as pre-release'
         required: false
@@ -28,10 +33,6 @@ on:
 concurrency:
   group: publish-client-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
 jobs:
   build-tauri:
@@ -64,7 +65,14 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
 
       # --- Bun (frontend package manager) ---
       - name: Setup Bun
@@ -76,7 +84,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -93,12 +101,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: client
-          tagName: ${{ github.ref_name }}
-          releaseName: 'PocketPaw Desktop ${{ github.ref_name }}'
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'PocketPaw Desktop ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
-            ## PocketPaw Desktop Client ${{ github.ref_name }}
+            ## PocketPaw Desktop Client ${{ github.event.inputs.tag || github.ref_name }}
 
             Desktop client for PocketPaw AI assistant. Connects to the PocketPaw backend running on your machine.
 
@@ -111,6 +121,6 @@ jobs:
             - PocketPaw backend running locally (`pip install pocketpaw && pocketpaw`)
 
             > This is a pre-release build. Please report issues at https://github.com/pocketpaw/pocketpaw/issues
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || github.event.inputs.prerelease == 'true' }}
+          releaseDraft: true
+          prerelease: ${{ fromJSON(contains(github.event.inputs.tag || github.ref_name, 'alpha') || contains(github.event.inputs.tag || github.ref_name, 'beta') || contains(github.event.inputs.tag || github.ref_name, 'rc') || github.event.inputs.prerelease == 'true') }}
           args: ${{ matrix.args }}
