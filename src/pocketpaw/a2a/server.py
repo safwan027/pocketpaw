@@ -68,15 +68,14 @@ def _check_a2a_enabled() -> None:
 
 # The agent-card route lives at the well-known path (outside /api prefix)
 well_known_router = APIRouter(
-    tags=["A2A"], 
-    dependencies=[Depends(_check_a2a_enabled), Depends(require_scope("chat"))]
+    tags=["A2A"], dependencies=[Depends(_check_a2a_enabled), Depends(require_scope("chat"))]
 )
 
 # Task endpoints live under /a2a
 tasks_router = APIRouter(
-    prefix="/a2a/tasks", 
-    tags=["A2A"], 
-    dependencies=[Depends(_check_a2a_enabled), Depends(require_scope("chat"))]
+    prefix="/a2a/tasks",
+    tags=["A2A"],
+    dependencies=[Depends(_check_a2a_enabled), Depends(require_scope("chat"))],
 )
 
 

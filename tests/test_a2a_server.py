@@ -48,17 +48,17 @@ from pocketpaw.a2a.server import (
 def test_app():
     """Minimal FastAPI app with both A2A routers mounted."""
     from fastapi import Request
-    
+
     app = FastAPI()
     app.dependency_overrides[_check_a2a_enabled] = lambda: None
-    
+
     # A cleaner approach for tests is to inject a dummy API key state that passes.
     # However, since require_scope just checks request.state:
     @app.middleware("http")
     async def mock_auth_middleware(request: Request, call_next):
         class MockAPIKey:
             scopes = ["chat", "admin"]
-            
+
         request.state.api_key = MockAPIKey()
         return await call_next(request)
 
@@ -344,7 +344,7 @@ class TestTasksSendStream:
 
         await _load()
         params = _make_send_params(task_id="stream-task")
-        
+
         async with client.stream(
             "POST", "/a2a/tasks/send/stream", content=params.model_dump_json()
         ) as resp:
