@@ -6,8 +6,8 @@ services:
     container_name: pocketpaw-discord
     volumes:
       - pocketpaw-discord-data:/home/pocketpaw/.pocketpaw
-      # Mount custom read-only identity (overrides default system prompt)
-      - ./identity:/home/pocketpaw/.pocketpaw/identity:ro
+      # Mount custom identity (overrides default system prompt)
+      - ./identity:/home/pocketpaw/.pocketpaw/identity
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
