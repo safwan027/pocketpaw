@@ -64,8 +64,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vector = ["chromadb"]
 # --- Feature extras ---
+vector = ["chromadb"]
 dashboard = [
     # Kept for backward compat — dashboard deps are now in core.
     # Users with `pip install pocketpaw[dashboard]` in scripts won't break.

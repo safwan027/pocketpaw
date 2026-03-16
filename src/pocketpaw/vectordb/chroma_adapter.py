@@ -1,25 +1,38 @@
 import asyncio
+from pathlib import Path
 
 from .protocol import VectorStoreProtocol
 
 
 class ChromaAdapter(VectorStoreProtocol):
-    def __init__(self, path: str = "./chroma_db"):
+    def __init__(self, path: str | Path | None = None, collection_name: str = "pocketpaw_memory"):
         try:
             import chromadb
         except ImportError:
             raise ImportError(
                 "chromadb is required for vector backend. Install with: pip install chromadb"
             )
+            
+        # 1. Define the project convention path as a Path object
+        default_path = Path.home() / ".pocketpaw" / "chroma_db"
+        
+        # 2. Determine the path and create the directory while it's still a Path object
+        target_path = Path(path) if path is not None else default_path
 
-        self.client = chromadb.PersistentClient(path=path)
+        # This creates the .pocketpaw folder if it's missing
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 3. Convert to string only when passing to the chromadb client
+        self.client = chromadb.PersistentClient(path=str(target_path))
+        
         self.collection = self.client.get_or_create_collection(
-            name="pocketpaw_memory"
+            name=collection_name
         )
 
     async def add(self, id: str, text: str) -> None:
+        # FIX: Duplicate ID issue solved by using upsert instead of add
         await asyncio.to_thread(
-            self.collection.add,
+            self.collection.upsert,
             documents=[text],
             ids=[id],
         )
@@ -31,7 +44,10 @@ class ChromaAdapter(VectorStoreProtocol):
             n_results=limit,
         )
 
-        return results["documents"][0] if results["documents"] else []
+        # Safe check for search results
+        if results and results.get("documents") and len(results["documents"]) > 0:
+            return results["documents"][0]
+        return []
 
     async def delete(self, id: str) -> None:
         await asyncio.to_thread(
@@ -45,8 +61,10 @@ class ChromaAdapter(VectorStoreProtocol):
             ids=[id],
         )
 
+        # FIX: get_by_id crash prevention
+        # Safely checks if documents key exists, has items, and the first item isn't None
         docs = results.get("documents")
-        if docs:
+        if docs and len(docs) > 0 and docs[0] is not None:
             return docs[0]
 
         return None
