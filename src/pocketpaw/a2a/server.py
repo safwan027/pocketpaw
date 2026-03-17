@@ -3,11 +3,13 @@
 # Phase 1: Exposes PocketPaw as an A2A-compatible agent.
 #
 # Endpoints:
-#   GET  /.well-known/agent.json  — Agent Card (capability manifest)
-#   POST /a2a/tasks/send          — Submit a task (returns task JSON)
-#   POST /a2a/tasks/send/stream   — Submit a task; SSE response stream
-#   GET  /a2a/tasks/{task_id}     — Poll task status
-#   POST /a2a/tasks/{task_id}/cancel — Cancel an in-flight task
+#   GET  /.well-known/agent.json       — Agent Card (capability manifest)
+#   GET  /.well-known/agent-card.json  — Alias (spec-correct path)
+#   POST /a2a                          — JSON-RPC 2.0 dispatcher
+#   POST /a2a/tasks/send               — Submit a task (returns task JSON)
+#   POST /a2a/tasks/send/stream        — Submit a task; SSE response stream
+#   GET  /a2a/tasks/{task_id}          — Poll task status
+#   POST /a2a/tasks/{task_id}/cancel   — Cancel an in-flight task
 #
 # All task processing is routed through the existing PocketPaw AgentLoop
 # via the internal message bus (same path as REST /api/v1/chat).
@@ -24,15 +26,28 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from pocketpaw.a2a.errors import (
+    TASK_NOT_CANCELABLE,
+    TASK_NOT_FOUND,
+    UNSUPPORTED_OPERATION,
+    JSONRPCError,
+    json_rpc_success_response,
+)
+from pocketpaw.a2a.jsonrpc import A2ADispatcher
 from pocketpaw.a2a.models import (
     A2AMessage,
     AgentCapabilities,
     AgentCard,
+    AgentSkill,
+    Artifact,
     Task,
+    TaskArtifactUpdateEvent,
     TaskSendParams,
     TaskState,
     TaskStatus,
+    TaskStatusUpdateEvent,
     TextPart,
+    validate_transition,
 )
 from pocketpaw.api.deps import require_scope
 from pocketpaw.config import get_settings
@@ -43,15 +58,19 @@ logger = logging.getLogger(__name__)
 # In-memory task store (sufficient for single-process; Phase 3 may persist)
 # ---------------------------------------------------------------------------
 _MAX_TASKS = 1000
-# TODO(Phase 3): replace with a distributed store for multi-worker support
 _tasks: dict[str, Task] = {}
-_cancel_events: dict[str, asyncio.Event] = {}  # task_id → cancellation flag
+_cancel_events: dict[str, asyncio.Event] = {}  # task_id -> cancellation flag
 
 
 def _store_task(task: Task) -> None:
     """Store a task and prune old tasks to prevent memory leaks."""
     if len(_tasks) >= _MAX_TASKS:
-        terminal = {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED}
+        terminal = {
+            TaskState.COMPLETED,
+            TaskState.FAILED,
+            TaskState.CANCELED,
+            TaskState.REJECTED,
+        }
         evict_id = next(
             (tid for tid, t in _tasks.items() if t.status.state in terminal),
             next(iter(_tasks)),  # fallback: evict oldest if all are active
@@ -83,6 +102,12 @@ tasks_router = APIRouter(
     dependencies=[Depends(_check_a2a_enabled), Depends(require_scope("chat"))],
 )
 
+# JSON-RPC 2.0 endpoint
+jsonrpc_router = APIRouter(
+    tags=["A2A"],
+    dependencies=[Depends(_check_a2a_enabled), Depends(require_scope("chat"))],
+)
+
 
 # ---------------------------------------------------------------------------
 # Agent Card helpers
@@ -91,39 +116,77 @@ tasks_router = APIRouter(
 
 def _build_agent_card(base_url: str) -> AgentCard:
     """Build an A2A-compliant Agent Card from current PocketPaw config."""
-    # Advertise a skill per enabled tool profile group
-    skills: list[dict[str, Any]] = [
-        {
-            "id": "general-assistant",
-            "name": "General Assistant",
-            "description": (
-                "Answer questions, run shell commands, search the web, manage files, "
-                "read/send email, control Spotify, and more."
-            ),
-            "input_modes": ["text"],
-            "output_modes": ["text"],
-        }
-    ]
+    settings = get_settings()
 
+    # Try to populate skills from ToolRegistry
+    skills: list[AgentSkill] = []
     try:
-        paw_version = _pkg_version("pocketpaw")
+        from pocketpaw.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        for defn in registry.get_definitions(format="openai"):
+            fn = defn.get("function", {})
+            skills.append(
+                AgentSkill(
+                    id=fn.get("name", "unknown"),
+                    name=fn.get("name", "unknown"),
+                    description=fn.get("description", ""),
+                    input_modes=["text/plain"],
+                    output_modes=["text/plain"],
+                )
+            )
     except Exception:
-        paw_version = "unknown"
+        pass
+
+    # Fallback if no tools registered
+    if not skills:
+        skills = [
+            AgentSkill(
+                id="general-assistant",
+                name="General Assistant",
+                description=(
+                    "Answer questions, run shell commands, search the web, manage files, "
+                    "read/send email, control Spotify, and more."
+                ),
+                input_modes=["text/plain"],
+                output_modes=["text/plain"],
+            )
+        ]
+
+    agent_name = getattr(settings, "a2a_agent_name", "PocketPaw")
+    agent_desc = getattr(settings, "a2a_agent_description", "") or (
+        "Self-hosted, modular AI agent. "
+        "Runs locally with 60+ built-in tools across productivity, coding, and research."
+    )
+    agent_version = getattr(settings, "a2a_agent_version", "") or ""
+
+    if not agent_version:
+        try:
+            agent_version = _pkg_version("pocketpaw")
+        except Exception:
+            agent_version = "unknown"
 
     return AgentCard(
-        name="PocketPaw",
-        description=(
-            "Self-hosted, modular AI agent. "
-            "Runs locally with 60+ built-in tools across productivity, coding, and research."
-        ),
+        name=agent_name,
+        description=agent_desc,
         url=base_url,
-        version=paw_version,
+        version=agent_version,
+        provider={"organization": "PocketPaw", "url": base_url},
         capabilities=AgentCapabilities(
             streaming=True,
             push_notifications=False,
             state_transition_history=True,
         ),
         skills=skills,
+        default_input_modes=["text/plain"],
+        default_output_modes=["text/plain"],
+        supported_interfaces=[
+            {
+                "url": f"{base_url}/a2a",
+                "protocol_binding": "jsonrpc-over-https",
+                "protocol_version": "0.2.5",
+            }
+        ],
     )
 
 
@@ -170,7 +233,7 @@ class _A2ASessionBridge:
 
         self._outbound_cb = _on_outbound
         self._system_cb = _on_system
-        bus.subscribe_outbound(Channel.WEBSOCKET, _on_outbound)
+        bus.subscribe_outbound(Channel.A2A, _on_outbound)
         bus.subscribe_system(_on_system)
 
     async def stop(self) -> None:
@@ -179,7 +242,7 @@ class _A2ASessionBridge:
 
         bus = get_message_bus()
         if self._outbound_cb:
-            bus.unsubscribe_outbound(Channel.WEBSOCKET, self._outbound_cb)
+            bus.unsubscribe_outbound(Channel.A2A, self._outbound_cb)
         if self._system_cb:
             bus.unsubscribe_system(self._system_cb)
 
@@ -191,10 +254,10 @@ async def _dispatch_to_agent(task_id: str, message: A2AMessage) -> str:
 
     # Use task_id as the stable chat_id so session context is maintained
     chat_id = f"a2a:{task_id}"
-    text = " ".join(part.text for part in message.parts if part.type == "text")
+    text = " ".join(part.text for part in message.parts if hasattr(part, "text"))
 
     msg = InboundMessage(
-        channel=Channel.WEBSOCKET,
+        channel=Channel.A2A,
         sender_id="a2a_client",
         chat_id=chat_id,
         content=text,
@@ -205,63 +268,45 @@ async def _dispatch_to_agent(task_id: str, message: A2AMessage) -> str:
     return chat_id
 
 
-# ---------------------------------------------------------------------------
-# Endpoint: Agent Card
-# ---------------------------------------------------------------------------
-
-
-@well_known_router.get("/.well-known/agent.json", response_class=JSONResponse)
-async def get_agent_card(request: Request):
-    """Return the A2A Agent Card describing PocketPaw's capabilities.
-
-    External agents discover this endpoint first when initiating A2A sessions.
-    """
-    base_url = str(request.base_url).rstrip("/")
-    card = _build_agent_card(base_url)
-    return JSONResponse(content=card.model_dump(mode="json"))
+def _get_task_timeout() -> float:
+    """Get the configured task timeout in seconds."""
+    settings = get_settings()
+    return float(getattr(settings, "a2a_task_timeout", 120))
 
 
 # ---------------------------------------------------------------------------
-# Endpoint: tasks/send (non-streaming)
+# Core business logic (shared by REST endpoints and JSON-RPC dispatcher)
 # ---------------------------------------------------------------------------
 
 
-@tasks_router.post("/send", response_model=Task)
-async def tasks_send(params: TaskSendParams):
-    """Submit a task to PocketPaw and wait for the completed response.
-
-    The task is routed through the internal AgentLoop. Completes when the
-    agent signals ``stream_end`` or on a 120-second timeout.
-    """
-    task_id = params.id  # always set: default_factory in TaskSendParams guarantees this
+async def _core_message_send(params: dict[str, Any]) -> dict[str, Any]:
+    """Core logic for message/send (non-streaming). Returns task dict."""
+    send_params = TaskSendParams(**params)
+    task_id = send_params.id
     chat_id = f"a2a:{task_id}"
+    timeout = _get_task_timeout()
 
-    # Create cancel event so tasks_cancel can interrupt even non-streaming tasks
     cancel_event = asyncio.Event()
     _cancel_events[task_id] = cancel_event
 
-    # Record initial task state
     task = Task(
         id=task_id,
-        session_id=params.session_id,
+        context_id=send_params.context_id,
+        session_id=send_params.session_id,
         status=TaskStatus(state=TaskState.SUBMITTED),
-        history=[params.message],
-        metadata=params.metadata,
+        history=[send_params.message],
+        metadata=send_params.metadata,
     )
     _store_task(task)
 
     bridge = _A2ASessionBridge(chat_id)
     await bridge.start()
 
-    # Transition: submitted → working
     task.status = TaskStatus(state=TaskState.WORKING)
 
     try:
-        await _dispatch_to_agent(task_id, params.message)
+        await _dispatch_to_agent(task_id, send_params.message)
 
-        # Collect chunks until stream_end, error, or cancellation.
-        # Use asyncio.wait so a cancel_event.wait() future can race against
-        # bridge.queue.get() — this makes cancellation work for sync tasks too.
         cancel_fut = asyncio.ensure_future(cancel_event.wait())
         content_parts: list[str] = []
         done = False
@@ -270,7 +315,7 @@ async def tasks_send(params: TaskSendParams):
             try:
                 finished, _ = await asyncio.wait(
                     {get_fut, cancel_fut},
-                    timeout=120,
+                    timeout=timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
             except Exception:
@@ -283,17 +328,16 @@ async def tasks_send(params: TaskSendParams):
                     state=TaskState.FAILED,
                     message=A2AMessage(
                         role="agent",
-                        parts=[TextPart(text="Task timed out after 120 seconds.")],
+                        parts=[TextPart(text=f"Task timed out after {int(timeout)} seconds.")],
                     ),
                 )
-                return task
+                return task.model_dump(mode="json")
 
             if cancel_fut in finished:  # cancellation requested
                 get_fut.cancel()
                 task.status = TaskStatus(state=TaskState.CANCELED)
-                return task
+                return task.model_dump(mode="json")
 
-            # get_fut completed — process the event
             event = get_fut.result()
             if event["type"] == "chunk":
                 content_parts.append(event.get("content", ""))
@@ -309,161 +353,348 @@ async def tasks_send(params: TaskSendParams):
                         parts=[TextPart(text=event.get("message", "Agent error"))],
                     ),
                 )
-                return task
+                return task.model_dump(mode="json")
 
-        # Build completion response
+        # Build completion response with artifact
+        full_text = "".join(content_parts)
         agent_reply = A2AMessage(
             role="agent",
-            parts=[TextPart(text="".join(content_parts))],
+            parts=[TextPart(text=full_text)],
         )
+        artifact = Artifact(
+            name="response",
+            description="Agent response",
+            parts=[TextPart(text=full_text)],
+        )
+        task.artifacts.append(artifact)
         task.status = TaskStatus(state=TaskState.COMPLETED, message=agent_reply)
         task.history.append(agent_reply)
-        return task
+        return task.model_dump(mode="json")
 
     finally:
         await bridge.stop()
         _cancel_events.pop(task_id, None)
 
 
-# ---------------------------------------------------------------------------
-# Endpoint: tasks/send/stream (SSE streaming)
-# ---------------------------------------------------------------------------
-
-
-@tasks_router.post("/send/stream")
-async def tasks_send_stream(params: TaskSendParams):
-    """Submit a task and receive an SSE stream of state-update events.
-
-    Each SSE event carries a JSON-encoded ``TaskStatus`` update:
-    - ``submitted``  — initial acknowledgment
-    - ``working``    — agent began processing, with delta content parts
-    - ``completed``  — final message and task result
-    - ``failed``     — unrecoverable error
-    """
-    task_id = params.id  # always set: default_factory in TaskSendParams guarantees this
+async def _core_message_stream(params: dict[str, Any], request_id: int | str | None = None):
+    """Core logic for message/stream. Yields JSON-RPC response dicts for SSE."""
+    send_params = TaskSendParams(**params)
+    task_id = send_params.id
     chat_id = f"a2a:{task_id}"
+    timeout = _get_task_timeout()
 
     cancel_event = asyncio.Event()
     _cancel_events[task_id] = cancel_event
 
     task = Task(
         id=task_id,
-        session_id=params.session_id,
+        context_id=send_params.context_id,
+        session_id=send_params.session_id,
         status=TaskStatus(state=TaskState.SUBMITTED),
-        history=[params.message],
-        metadata=params.metadata,
+        history=[send_params.message],
+        metadata=send_params.metadata,
     )
     _store_task(task)
 
     bridge = _A2ASessionBridge(chat_id)
     await bridge.start()
-    await _dispatch_to_agent(task_id, params.message)
+    await _dispatch_to_agent(task_id, send_params.message)
+
+    try:
+        # Submitted acknowledgment
+        submitted_event = TaskStatusUpdateEvent(
+            task_id=task_id,
+            context_id=send_params.context_id,
+            status=TaskStatus(state=TaskState.SUBMITTED),
+            final=False,
+        )
+        yield json_rpc_success_response(request_id, submitted_event.model_dump(mode="json"))
+
+        # Working notification
+        working_status = TaskStatus(state=TaskState.WORKING)
+        _tasks[task_id].status = working_status
+        working_event = TaskStatusUpdateEvent(
+            task_id=task_id,
+            context_id=send_params.context_id,
+            status=working_status,
+            final=False,
+        )
+        yield json_rpc_success_response(request_id, working_event.model_dump(mode="json"))
+
+        # Stream content chunks
+        accumulated: list[str] = []
+        max_duration = timeout
+        elapsed = 0.0
+        while not cancel_event.is_set():
+            if elapsed >= max_duration:
+                agent_reply = A2AMessage(
+                    role="agent",
+                    parts=[TextPart(text=f"Task timed out after {int(timeout)} seconds.")],
+                )
+                failed_status = TaskStatus(state=TaskState.FAILED, message=agent_reply)
+                _tasks[task_id].status = failed_status
+                failed_event = TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=send_params.context_id,
+                    status=failed_status,
+                    final=True,
+                )
+                yield json_rpc_success_response(request_id, failed_event.model_dump(mode="json"))
+                break
+
+            try:
+                event = await asyncio.wait_for(bridge.queue.get(), timeout=1.0)
+            except TimeoutError:
+                elapsed += 1.0
+                continue
+
+            if event["type"] == "chunk":
+                chunk_text = event.get("content", "")
+                accumulated.append(chunk_text)
+                # Emit artifact update per chunk
+                chunk_artifact = Artifact(
+                    name="response",
+                    parts=[TextPart(text=chunk_text)],
+                )
+                artifact_event = TaskArtifactUpdateEvent(
+                    task_id=task_id,
+                    context_id=send_params.context_id,
+                    artifact=chunk_artifact,
+                    append=True,
+                    last_chunk=False,
+                )
+                yield json_rpc_success_response(request_id, artifact_event.model_dump(mode="json"))
+
+            elif event["type"] == "stream_end":
+                full_text = "".join(accumulated)
+                # Final artifact event
+                final_artifact = Artifact(
+                    name="response",
+                    description="Agent response",
+                    parts=[TextPart(text=full_text)],
+                )
+                _tasks[task_id].artifacts.append(final_artifact)
+                final_artifact_event = TaskArtifactUpdateEvent(
+                    task_id=task_id,
+                    context_id=send_params.context_id,
+                    artifact=final_artifact,
+                    append=False,
+                    last_chunk=True,
+                )
+                yield json_rpc_success_response(
+                    request_id, final_artifact_event.model_dump(mode="json")
+                )
+
+                # Completed status event
+                agent_reply = A2AMessage(role="agent", parts=[TextPart(text=full_text)])
+                completed_status = TaskStatus(state=TaskState.COMPLETED, message=agent_reply)
+                _tasks[task_id].status = completed_status
+                _tasks[task_id].history.append(agent_reply)
+                completed_event = TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=send_params.context_id,
+                    status=completed_status,
+                    final=True,
+                )
+                yield json_rpc_success_response(request_id, completed_event.model_dump(mode="json"))
+                break
+
+            elif event["type"] == "error":
+                agent_reply = A2AMessage(
+                    role="agent",
+                    parts=[TextPart(text=event.get("message", "Agent error"))],
+                )
+                failed_status = TaskStatus(state=TaskState.FAILED, message=agent_reply)
+                _tasks[task_id].status = failed_status
+                failed_event = TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=send_params.context_id,
+                    status=failed_status,
+                    final=True,
+                )
+                yield json_rpc_success_response(request_id, failed_event.model_dump(mode="json"))
+                break
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await bridge.stop()
+        _cancel_events.pop(task_id, None)
+
+
+async def _core_tasks_get(task_id: str) -> dict[str, Any]:
+    """Core logic for tasks/get. Returns task dict or raises JSONRPCError."""
+    task = _tasks.get(task_id)
+    if task is None:
+        raise JSONRPCError(TASK_NOT_FOUND, f"Task '{task_id}' not found")
+    return task.model_dump(mode="json")
+
+
+async def _core_tasks_cancel(task_id: str) -> dict[str, Any]:
+    """Core logic for tasks/cancel. Returns result dict or raises JSONRPCError."""
+    task = _tasks.get(task_id)
+    if task is None:
+        raise JSONRPCError(TASK_NOT_FOUND, f"Task '{task_id}' not found")
+
+    # Validate state transition
+    if not validate_transition(task.status.state, TaskState.CANCELED):
+        raise JSONRPCError(
+            TASK_NOT_CANCELABLE,
+            f"Task in state '{task.status.state}' cannot be canceled",
+        )
+
+    cancel_event = _cancel_events.get(task_id)
+    if cancel_event:
+        cancel_event.set()
+
+    task.status = TaskStatus(
+        state=TaskState.CANCELED,
+        timestamp=datetime.now(tz=UTC),
+    )
+    return {"id": task_id, "status": "canceled"}
+
+
+# ---------------------------------------------------------------------------
+# JSON-RPC 2.0 dispatcher setup
+# ---------------------------------------------------------------------------
+
+_dispatcher = A2ADispatcher()
+
+
+async def _jsonrpc_message_send(params: dict[str, Any], request_id: int | str | None):
+    return await _core_message_send(params)
+
+
+async def _jsonrpc_message_stream(params: dict[str, Any], request_id: int | str | None):
+    async for event in _core_message_stream(params, request_id):
+        yield event
+
+
+async def _jsonrpc_tasks_get(params: dict[str, Any], request_id: int | str | None):
+    task_id = params.get("id") or params.get("task_id")
+    if not task_id:
+        raise JSONRPCError(-32602, "Missing required parameter: id")
+    return await _core_tasks_get(task_id)
+
+
+async def _jsonrpc_tasks_cancel(params: dict[str, Any], request_id: int | str | None):
+    task_id = params.get("id") or params.get("task_id")
+    if not task_id:
+        raise JSONRPCError(-32602, "Missing required parameter: id")
+    return await _core_tasks_cancel(task_id)
+
+
+async def _jsonrpc_push_notification_set(params: dict[str, Any], request_id: int | str | None):
+    raise JSONRPCError(UNSUPPORTED_OPERATION, "Push notifications are not supported by this agent")
+
+
+async def _jsonrpc_push_notification_get(params: dict[str, Any], request_id: int | str | None):
+    raise JSONRPCError(UNSUPPORTED_OPERATION, "Push notifications are not supported by this agent")
+
+
+_dispatcher.register("message/send", _jsonrpc_message_send)
+_dispatcher.register_stream("message/stream", _jsonrpc_message_stream)
+_dispatcher.register("tasks/get", _jsonrpc_tasks_get)
+_dispatcher.register("tasks/cancel", _jsonrpc_tasks_cancel)
+_dispatcher.register("tasks/pushNotificationConfig/set", _jsonrpc_push_notification_set)
+_dispatcher.register("tasks/pushNotificationConfig/get", _jsonrpc_push_notification_get)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: Agent Card
+# ---------------------------------------------------------------------------
+
+
+@well_known_router.get("/.well-known/agent.json", response_class=JSONResponse)
+async def get_agent_card(request: Request):
+    """Return the A2A Agent Card describing PocketPaw's capabilities."""
+    base_url = str(request.base_url).rstrip("/")
+    card = _build_agent_card(base_url)
+    return JSONResponse(content=card.model_dump(mode="json"))
+
+
+@well_known_router.get("/.well-known/agent-card.json", response_class=JSONResponse)
+async def get_agent_card_alias(request: Request):
+    """Alias for the spec-correct agent-card.json path."""
+    base_url = str(request.base_url).rstrip("/")
+    card = _build_agent_card(base_url)
+    return JSONResponse(content=card.model_dump(mode="json"))
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: JSON-RPC 2.0 (POST /a2a)
+# ---------------------------------------------------------------------------
+
+
+@jsonrpc_router.post("/a2a")
+async def jsonrpc_endpoint(request: Request):
+    """JSON-RPC 2.0 endpoint for A2A protocol methods."""
+    body = await request.body()
+
+    # Check if this is a streaming request
+    try:
+        parsed = json.loads(body)
+        method = parsed.get("method", "") if isinstance(parsed, dict) else ""
+    except (json.JSONDecodeError, ValueError):
+        method = ""
+
+    if method in _dispatcher._stream_methods:
+        # Stream via SSE
+        async def _sse_generator():
+            async for event in _dispatcher.dispatch_stream(body):
+                yield _format_sse("message", event)
+
+        return StreamingResponse(
+            _sse_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # Non-streaming: dispatch and return JSON
+    result = await _dispatcher.dispatch(body)
+    return JSONResponse(content=result)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: tasks/send (non-streaming) — REST wrapper
+# ---------------------------------------------------------------------------
+
+
+@tasks_router.post("/send", response_model=Task)
+async def tasks_send(params: TaskSendParams):
+    """Submit a task to PocketPaw and wait for the completed response.
+
+    The task is routed through the internal AgentLoop. Completes when the
+    agent signals ``stream_end`` or on timeout.
+    """
+    result = await _core_message_send(params.model_dump(mode="json"))
+    return JSONResponse(content=result)
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: tasks/send/stream (SSE streaming) — REST wrapper
+# ---------------------------------------------------------------------------
+
+
+@tasks_router.post("/send/stream")
+async def tasks_send_stream(params: TaskSendParams):
+    """Submit a task and receive an SSE stream of state-update events."""
+    params_dict = params.model_dump(mode="json")
 
     async def _event_generator():
-        try:
-            # Submitted acknowledgment
-            submitted_status = TaskStatus(state=TaskState.SUBMITTED)
-            yield _format_sse(
-                "task_status_update",
-                {
-                    "id": task_id,
-                    "status": submitted_status.model_dump(mode="json"),
-                    "final": False,
-                },
-            )
-
-            # Working notification
-            working_status = TaskStatus(state=TaskState.WORKING)
-            _tasks[task_id].status = working_status
-            yield _format_sse(
-                "task_status_update",
-                {
-                    "id": task_id,
-                    "status": working_status.model_dump(mode="json"),
-                    "final": False,
-                },
-            )
-
-            # Stream content chunks as working updates
-            accumulated: list[str] = []
-            max_duration = 120.0
-            elapsed = 0.0
-            while not cancel_event.is_set():
-                if elapsed >= max_duration:
-                    agent_reply = A2AMessage(
-                        role="agent",
-                        parts=[TextPart(text="Task timed out after 120 seconds.")],
-                    )
-                    failed_status = TaskStatus(state=TaskState.FAILED, message=agent_reply)
-                    _tasks[task_id].status = failed_status
-                    yield _format_sse(
-                        "task_status_update",
-                        {
-                            "id": task_id,
-                            "status": failed_status.model_dump(mode="json"),
-                            "final": True,
-                        },
-                    )
-                    break
-
-                try:
-                    event = await asyncio.wait_for(bridge.queue.get(), timeout=1.0)
-                except TimeoutError:
-                    elapsed += 1.0
-                    continue
-
-                if event["type"] == "chunk":
-                    chunk_text = event.get("content", "")
-                    accumulated.append(chunk_text)
-                    delta_msg = A2AMessage(role="agent", parts=[TextPart(text=chunk_text)])
-                    chunk_status = TaskStatus(state=TaskState.WORKING, message=delta_msg)
-                    yield _format_sse(
-                        "task_status_update",
-                        {
-                            "id": task_id,
-                            "status": chunk_status.model_dump(mode="json"),
-                            "final": False,
-                        },
-                    )
-
-                elif event["type"] == "stream_end":
-                    full_text = "".join(accumulated)
-                    agent_reply = A2AMessage(role="agent", parts=[TextPart(text=full_text)])
-                    completed_status = TaskStatus(state=TaskState.COMPLETED, message=agent_reply)
-                    _tasks[task_id].status = completed_status
-                    _tasks[task_id].history.append(agent_reply)
-                    yield _format_sse(
-                        "task_status_update",
-                        {
-                            "id": task_id,
-                            "status": completed_status.model_dump(mode="json"),
-                            "final": True,
-                        },
-                    )
-                    break
-
-                elif event["type"] == "error":
-                    agent_reply = A2AMessage(
-                        role="agent",
-                        parts=[TextPart(text=event.get("message", "Agent error"))],
-                    )
-                    failed_status = TaskStatus(state=TaskState.FAILED, message=agent_reply)
-                    _tasks[task_id].status = failed_status
-                    yield _format_sse(
-                        "task_status_update",
-                        {
-                            "id": task_id,
-                            "status": failed_status.model_dump(mode="json"),
-                            "final": True,
-                        },
-                    )
-                    break
-
-        except asyncio.CancelledError:
-            pass  # client disconnected, finally block handles cleanup
-        finally:
-            await bridge.stop()
-            _cancel_events.pop(task_id, None)
+        async for event in _core_message_stream(params_dict):
+            # Extract status or artifact info for SSE event type
+            result = event.get("result", {})
+            if "status" in result:
+                yield _format_sse("task_status_update", result)
+            elif "artifact" in result:
+                yield _format_sse("task_artifact_update", result)
+            else:
+                yield _format_sse("message", result)
 
     return StreamingResponse(
         _event_generator(),
@@ -477,7 +708,7 @@ async def tasks_send_stream(params: TaskSendParams):
 
 
 # ---------------------------------------------------------------------------
-# Endpoint: tasks/{task_id} (GET — poll)
+# Endpoint: tasks/{task_id} (GET — poll) — REST wrapper
 # ---------------------------------------------------------------------------
 
 
@@ -491,7 +722,7 @@ async def tasks_get(task_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Endpoint: tasks/{task_id}/cancel
+# Endpoint: tasks/{task_id}/cancel — REST wrapper
 # ---------------------------------------------------------------------------
 
 
@@ -501,6 +732,13 @@ async def tasks_cancel(task_id: str):
     task = _tasks.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    # Validate state transition
+    if not validate_transition(task.status.state, TaskState.CANCELED):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task in state '{task.status.state}' cannot be canceled",
+        )
 
     cancel_event = _cancel_events.get(task_id)
     if cancel_event:
@@ -535,11 +773,14 @@ def register_routes(app) -> None:
     import details and makes it easy for maintainers to see what gets exposed.
 
     Routes added:
-      GET  /.well-known/agent.json     — Agent Card capability manifest
-      POST /a2a/tasks/send             — Submit task (blocking)
-      POST /a2a/tasks/send/stream      — Submit task (SSE streaming)
-      GET  /a2a/tasks/{task_id}        — Poll task status
-      POST /a2a/tasks/{task_id}/cancel — Cancel task
+      GET  /.well-known/agent.json       — Agent Card capability manifest
+      GET  /.well-known/agent-card.json  — Agent Card alias (spec path)
+      POST /a2a                          — JSON-RPC 2.0 dispatcher
+      POST /a2a/tasks/send               — Submit task (blocking)
+      POST /a2a/tasks/send/stream        — Submit task (SSE streaming)
+      GET  /a2a/tasks/{task_id}          — Poll task status
+      POST /a2a/tasks/{task_id}/cancel   — Cancel task
     """
     app.include_router(well_known_router)
     app.include_router(tasks_router)
+    app.include_router(jsonrpc_router)

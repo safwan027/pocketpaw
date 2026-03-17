@@ -7,7 +7,10 @@
 #  - GET  /a2a/tasks/{task_id} polling
 #  - POST /a2a/tasks/{task_id}/cancel
 #  - POST /a2a/tasks/send/stream (SSE format validation)
-#  - Model validation: TaskState enum, TextPart, A2AMessage
+#  - Model validation: TaskState enum, TextPart, FilePart, DataPart, Artifact
+#  - JSON-RPC 2.0 dispatcher and POST /a2a endpoint
+#  - State transition validation
+#  - Streaming artifact events
 
 from __future__ import annotations
 
@@ -20,14 +23,38 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from pocketpaw.a2a.errors import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    TASK_NOT_CANCELABLE,
+    TASK_NOT_FOUND,
+    UNSUPPORTED_OPERATION,
+    JSONRPCError,
+    json_rpc_error_response,
+    json_rpc_success_response,
+)
+from pocketpaw.a2a.jsonrpc import A2ADispatcher
 from pocketpaw.a2a.models import (
     A2AMessage,
     AgentCard,
+    AgentSkill,
+    Artifact,
+    DataPart,
+    FilePart,
+    JSONRPCErrorData,
+    JSONRPCRequest,
+    JSONRPCResponse,
     Task,
+    TaskArtifactUpdateEvent,
     TaskSendParams,
     TaskState,
     TaskStatus,
+    TaskStatusUpdateEvent,
     TextPart,
+    validate_transition,
 )
 from pocketpaw.a2a.server import (
     _A2ASessionBridge,
@@ -35,6 +62,7 @@ from pocketpaw.a2a.server import (
     _check_a2a_enabled,
     _format_sse,
     _tasks,
+    jsonrpc_router,
     tasks_router,
     well_known_router,
 )
@@ -46,14 +74,12 @@ from pocketpaw.a2a.server import (
 
 @pytest.fixture
 def test_app():
-    """Minimal FastAPI app with both A2A routers mounted."""
+    """Minimal FastAPI app with all A2A routers mounted."""
     from fastapi import Request
 
     app = FastAPI()
     app.dependency_overrides[_check_a2a_enabled] = lambda: None
 
-    # A cleaner approach for tests is to inject a dummy API key state that passes.
-    # However, since require_scope just checks request.state:
     @app.middleware("http")
     async def mock_auth_middleware(request: Request, call_next):
         class MockAPIKey:
@@ -64,6 +90,7 @@ def test_app():
 
     app.include_router(well_known_router)
     app.include_router(tasks_router)
+    app.include_router(jsonrpc_router)
     return app
 
 
@@ -104,10 +131,42 @@ class TestModels:
         assert TaskState.FAILED == "failed"
         assert TaskState.CANCELED == "canceled"
 
+    def test_new_task_states(self):
+        assert TaskState.REJECTED == "rejected"
+        assert TaskState.AUTH_REQUIRED == "auth-required"
+
     def test_text_part_defaults(self):
         part = TextPart(text="hello")
         assert part.type == "text"
         assert part.text == "hello"
+
+    def test_file_part(self):
+        part = FilePart(name="test.txt", media_type="text/plain", uri="file:///test.txt")
+        assert part.type == "file"
+        assert part.name == "test.txt"
+        assert part.media_type == "text/plain"
+
+    def test_file_part_with_bytes(self):
+        part = FilePart(name="img.png", media_type="image/png", bytes_data="aGVsbG8=")
+        assert part.bytes_data == "aGVsbG8="
+
+    def test_data_part(self):
+        part = DataPart(data={"key": "value", "count": 42})
+        assert part.type == "data"
+        assert part.data["key"] == "value"
+
+    def test_part_discriminator(self):
+        """Parts should serialize/deserialize with type discriminator."""
+        msg = A2AMessage(
+            role="agent",
+            parts=[
+                TextPart(text="hello"),
+                DataPart(data={"x": 1}),
+            ],
+        )
+        data = msg.model_dump()
+        assert data["parts"][0]["type"] == "text"
+        assert data["parts"][1]["type"] == "data"
 
     def test_a2a_message_serialization(self):
         msg = A2AMessage(role="agent", parts=[TextPart(text="hi")])
@@ -115,21 +174,357 @@ class TestModels:
         assert data["role"] == "agent"
         assert data["parts"][0]["text"] == "hi"
 
+    def test_a2a_message_has_id(self):
+        msg = A2AMessage(role="user", parts=[TextPart(text="test")])
+        assert msg.message_id  # auto-generated
+
+    def test_a2a_message_metadata(self):
+        msg = A2AMessage(role="user", parts=[TextPart(text="hi")], metadata={"source": "test"})
+        assert msg.metadata["source"] == "test"
+
     def test_agent_card_defaults(self):
         card = AgentCard(
             name="Test", description="Desc", url="http://localhost:8888", version="1.0"
         )
         assert card.capabilities.streaming is True
-        assert card.default_input_modes == ["text"]
-        assert card.default_output_modes == ["text"]
+        assert card.default_input_modes == ["text/plain"]
+        assert card.default_output_modes == ["text/plain"]
+
+    def test_agent_card_provider(self):
+        card = AgentCard(
+            name="Test",
+            description="Desc",
+            url="http://localhost:8888",
+            version="1.0",
+            provider={"organization": "TestOrg", "url": "https://test.org"},
+        )
+        assert card.provider["organization"] == "TestOrg"
+
+    def test_agent_card_supported_interfaces(self):
+        card = AgentCard(
+            name="Test",
+            description="Desc",
+            url="http://localhost:8888",
+            version="1.0",
+            supported_interfaces=[
+                {"url": "http://localhost/a2a", "protocol_binding": "jsonrpc-over-https"}
+            ],
+        )
+        assert len(card.supported_interfaces) == 1
+
+    def test_agent_skill(self):
+        skill = AgentSkill(id="test", name="Test Skill", description="A test skill")
+        assert skill.id == "test"
+        assert skill.input_modes == ["text/plain"]
+        assert skill.output_modes == ["text/plain"]
+
+    def test_agent_skill_with_tags(self):
+        skill = AgentSkill(
+            id="web", name="Web Search", description="Search the web", tags=["search", "web"]
+        )
+        assert "search" in skill.tags
 
     def test_task_send_params_auto_id(self):
         params = TaskSendParams(message=A2AMessage(role="user", parts=[TextPart(text="test")]))
         assert params.id  # auto-generated
 
+    def test_task_send_params_context_id(self):
+        params = TaskSendParams(
+            context_id="ctx-123",
+            message=A2AMessage(role="user", parts=[TextPart(text="test")]),
+        )
+        assert params.context_id == "ctx-123"
+
     def test_task_status_default_timestamp(self):
         status = TaskStatus(state=TaskState.SUBMITTED)
         assert status.timestamp is not None
+
+    def test_artifact_defaults(self):
+        artifact = Artifact(parts=[TextPart(text="result")])
+        assert artifact.artifact_id  # auto-generated
+        assert artifact.name is None
+        assert len(artifact.parts) == 1
+
+    def test_artifact_with_metadata(self):
+        artifact = Artifact(
+            name="output",
+            description="The result",
+            parts=[TextPart(text="data")],
+            metadata={"format": "markdown"},
+        )
+        assert artifact.metadata["format"] == "markdown"
+
+    def test_task_has_artifacts(self):
+        task = Task(
+            id="t1",
+            status=TaskStatus(state=TaskState.COMPLETED),
+            artifacts=[Artifact(parts=[TextPart(text="result")])],
+        )
+        assert len(task.artifacts) == 1
+
+    def test_task_context_id(self):
+        task = Task(
+            id="t1",
+            context_id="ctx-abc",
+            status=TaskStatus(state=TaskState.SUBMITTED),
+        )
+        assert task.context_id == "ctx-abc"
+
+
+# ---------------------------------------------------------------------------
+# Tests: State transition validation
+# ---------------------------------------------------------------------------
+
+
+class TestStateTransitions:
+    def test_submitted_to_working(self):
+        assert validate_transition(TaskState.SUBMITTED, TaskState.WORKING) is True
+
+    def test_submitted_to_rejected(self):
+        assert validate_transition(TaskState.SUBMITTED, TaskState.REJECTED) is True
+
+    def test_working_to_completed(self):
+        assert validate_transition(TaskState.WORKING, TaskState.COMPLETED) is True
+
+    def test_working_to_failed(self):
+        assert validate_transition(TaskState.WORKING, TaskState.FAILED) is True
+
+    def test_working_to_canceled(self):
+        assert validate_transition(TaskState.WORKING, TaskState.CANCELED) is True
+
+    def test_working_to_input_required(self):
+        assert validate_transition(TaskState.WORKING, TaskState.INPUT_REQUIRED) is True
+
+    def test_completed_is_terminal(self):
+        assert validate_transition(TaskState.COMPLETED, TaskState.WORKING) is False
+        assert validate_transition(TaskState.COMPLETED, TaskState.FAILED) is False
+
+    def test_failed_is_terminal(self):
+        assert validate_transition(TaskState.FAILED, TaskState.WORKING) is False
+
+    def test_canceled_is_terminal(self):
+        assert validate_transition(TaskState.CANCELED, TaskState.WORKING) is False
+
+    def test_rejected_is_terminal(self):
+        assert validate_transition(TaskState.REJECTED, TaskState.WORKING) is False
+
+    def test_input_required_to_working(self):
+        assert validate_transition(TaskState.INPUT_REQUIRED, TaskState.WORKING) is True
+
+    def test_invalid_transition(self):
+        assert validate_transition(TaskState.SUBMITTED, TaskState.COMPLETED) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: JSON-RPC envelope models
+# ---------------------------------------------------------------------------
+
+
+class TestJSONRPCModels:
+    def test_jsonrpc_request(self):
+        req = JSONRPCRequest(method="message/send", params={"message": {}})
+        assert req.jsonrpc == "2.0"
+        assert req.method == "message/send"
+
+    def test_jsonrpc_request_with_id(self):
+        req = JSONRPCRequest(id=42, method="tasks/get")
+        assert req.id == 42
+
+    def test_jsonrpc_response_success(self):
+        resp = JSONRPCResponse(id=1, result={"status": "ok"})
+        assert resp.result == {"status": "ok"}
+        assert resp.error is None
+
+    def test_jsonrpc_response_error(self):
+        resp = JSONRPCResponse(id=1, error=JSONRPCErrorData(code=-32600, message="Invalid request"))
+        assert resp.error.code == -32600
+
+    def test_jsonrpc_error_data(self):
+        err = JSONRPCErrorData(code=-32700, message="Parse error", data="details")
+        assert err.code == -32700
+        assert err.data == "details"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Streaming event models
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingEvents:
+    def test_task_status_update_event(self):
+        evt = TaskStatusUpdateEvent(
+            task_id="t1",
+            status=TaskStatus(state=TaskState.WORKING),
+            final=False,
+        )
+        assert evt.task_id == "t1"
+        assert evt.final is False
+
+    def test_task_status_update_with_context(self):
+        evt = TaskStatusUpdateEvent(
+            task_id="t1",
+            context_id="ctx-1",
+            status=TaskStatus(state=TaskState.COMPLETED),
+            final=True,
+        )
+        assert evt.context_id == "ctx-1"
+        assert evt.final is True
+
+    def test_task_artifact_update_event(self):
+        artifact = Artifact(parts=[TextPart(text="chunk")])
+        evt = TaskArtifactUpdateEvent(
+            task_id="t1",
+            artifact=artifact,
+            append=True,
+            last_chunk=False,
+        )
+        assert evt.append is True
+        assert evt.last_chunk is False
+
+    def test_task_artifact_final_chunk(self):
+        artifact = Artifact(parts=[TextPart(text="full response")])
+        evt = TaskArtifactUpdateEvent(
+            task_id="t1",
+            artifact=artifact,
+            append=False,
+            last_chunk=True,
+        )
+        assert evt.last_chunk is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: Error helpers
+# ---------------------------------------------------------------------------
+
+
+class TestErrors:
+    def test_jsonrpc_error_exception(self):
+        err = JSONRPCError(-32600, "Invalid request")
+        assert err.code == -32600
+        assert err.message == "Invalid request"
+
+    def test_jsonrpc_error_to_response(self):
+        err = JSONRPCError(-32600, "Invalid request", data={"field": "method"})
+        resp = err.to_response(42)
+        assert resp["jsonrpc"] == "2.0"
+        assert resp["id"] == 42
+        assert resp["error"]["code"] == -32600
+        assert resp["error"]["data"]["field"] == "method"
+
+    def test_json_rpc_error_response_helper(self):
+        resp = json_rpc_error_response(1, PARSE_ERROR, "Parse error")
+        assert resp["error"]["code"] == PARSE_ERROR
+
+    def test_json_rpc_success_response_helper(self):
+        resp = json_rpc_success_response(1, {"status": "ok"})
+        assert resp["result"]["status"] == "ok"
+        assert "error" not in resp
+
+    def test_error_codes(self):
+        assert PARSE_ERROR == -32700
+        assert INVALID_REQUEST == -32600
+        assert METHOD_NOT_FOUND == -32601
+        assert INVALID_PARAMS == -32602
+        assert INTERNAL_ERROR == -32603
+        assert TASK_NOT_FOUND == -32001
+        assert TASK_NOT_CANCELABLE == -32002
+        assert UNSUPPORTED_OPERATION == -32004
+
+
+# ---------------------------------------------------------------------------
+# Tests: JSON-RPC Dispatcher
+# ---------------------------------------------------------------------------
+
+
+class TestA2ADispatcher:
+    @pytest.mark.asyncio
+    async def test_dispatch_parse_error(self):
+        dispatcher = A2ADispatcher()
+        result = await dispatcher.dispatch(b"not json{{{")
+        assert result["error"]["code"] == PARSE_ERROR
+
+    @pytest.mark.asyncio
+    async def test_dispatch_invalid_request_missing_jsonrpc(self):
+        dispatcher = A2ADispatcher()
+        result = await dispatcher.dispatch(json.dumps({"method": "test"}).encode())
+        assert result["error"]["code"] == INVALID_REQUEST
+
+    @pytest.mark.asyncio
+    async def test_dispatch_invalid_request_missing_method(self):
+        dispatcher = A2ADispatcher()
+        result = await dispatcher.dispatch(json.dumps({"jsonrpc": "2.0"}).encode())
+        assert result["error"]["code"] == INVALID_REQUEST
+
+    @pytest.mark.asyncio
+    async def test_dispatch_method_not_found(self):
+        dispatcher = A2ADispatcher()
+        result = await dispatcher.dispatch(
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "unknown/method"}).encode()
+        )
+        assert result["error"]["code"] == METHOD_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_dispatch_valid_call(self):
+        dispatcher = A2ADispatcher()
+
+        async def echo(params, req_id):
+            return {"echo": params}
+
+        dispatcher.register("test/echo", echo)
+        result = await dispatcher.dispatch(
+            json.dumps(
+                {"jsonrpc": "2.0", "id": 1, "method": "test/echo", "params": {"msg": "hi"}}
+            ).encode()
+        )
+        assert result["result"]["echo"]["msg"] == "hi"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_batch_request(self):
+        dispatcher = A2ADispatcher()
+
+        async def echo(params, req_id):
+            return {"echo": params}
+
+        dispatcher.register("test/echo", echo)
+        batch = [
+            {"jsonrpc": "2.0", "id": 1, "method": "test/echo", "params": {"n": 1}},
+            {"jsonrpc": "2.0", "id": 2, "method": "test/echo", "params": {"n": 2}},
+        ]
+        result = await dispatcher.dispatch(json.dumps(batch).encode())
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["result"]["echo"]["n"] == 1
+        assert result[1]["result"]["echo"]["n"] == 2
+
+    @pytest.mark.asyncio
+    async def test_dispatch_empty_batch(self):
+        dispatcher = A2ADispatcher()
+        result = await dispatcher.dispatch(json.dumps([]).encode())
+        assert result["error"]["code"] == INVALID_REQUEST
+
+    @pytest.mark.asyncio
+    async def test_dispatch_stream(self):
+        dispatcher = A2ADispatcher()
+
+        async def stream_handler(params, req_id):
+            yield {"chunk": 1}
+            yield {"chunk": 2}
+
+        dispatcher.register_stream("test/stream", stream_handler)
+        events = []
+        async for event in dispatcher.dispatch_stream(
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test/stream"}).encode()
+        ):
+            events.append(event)
+        assert len(events) == 2
+
+    @pytest.mark.asyncio
+    async def test_dispatch_invalid_params_type(self):
+        dispatcher = A2ADispatcher()
+        result = await dispatcher.dispatch(
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test", "params": [1, 2]}).encode()
+        )
+        assert result["error"]["code"] == INVALID_PARAMS
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +536,11 @@ class TestAgentCard:
     @pytest.mark.asyncio
     async def test_agent_card_returns_200(self, client):
         resp = await client.get("/.well-known/agent.json")
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_agent_card_alias_returns_200(self, client):
+        resp = await client.get("/.well-known/agent-card.json")
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
@@ -181,6 +581,29 @@ class TestAgentCard:
         assert "name" in skill
         assert "description" in skill
 
+    @pytest.mark.asyncio
+    async def test_agent_card_has_provider(self, client):
+        resp = await client.get("/.well-known/agent.json")
+        data = resp.json()
+        assert "provider" in data
+        assert data["provider"]["organization"] == "PocketPaw"
+
+    @pytest.mark.asyncio
+    async def test_agent_card_has_supported_interfaces(self, client):
+        resp = await client.get("/.well-known/agent.json")
+        data = resp.json()
+        assert "supported_interfaces" in data
+        assert len(data["supported_interfaces"]) >= 1
+        iface = data["supported_interfaces"][0]
+        assert "protocol_binding" in iface
+
+    @pytest.mark.asyncio
+    async def test_agent_card_mime_types(self, client):
+        resp = await client.get("/.well-known/agent.json")
+        data = resp.json()
+        assert data["default_input_modes"] == ["text/plain"]
+        assert data["default_output_modes"] == ["text/plain"]
+
 
 # ---------------------------------------------------------------------------
 # Tests: POST /a2a/tasks/send (non-streaming)
@@ -212,6 +635,30 @@ class TestTasksSend:
         assert data["id"] == "test-task-001"
         assert data["status"]["state"] == TaskState.COMPLETED
         assert "Here is the answer." in data["status"]["message"]["parts"][0]["text"]
+
+    @patch("pocketpaw.a2a.server._dispatch_to_agent")
+    @patch("pocketpaw.a2a.server._A2ASessionBridge")
+    async def test_send_includes_artifact(self, mock_bridge_cls, mock_dispatch, client):
+        bridge = MagicMock()
+        q = asyncio.Queue()
+        bridge.queue = q
+        bridge.start = AsyncMock()
+        bridge.stop = AsyncMock()
+        mock_bridge_cls.return_value = bridge
+        mock_dispatch.return_value = "a2a:artifact-test"
+
+        async def _load():
+            await q.put({"type": "chunk", "content": "Result data."})
+            await q.put({"type": "stream_end"})
+
+        await _load()
+
+        params = _make_send_params(task_id="artifact-test")
+        resp = await client.post("/a2a/tasks/send", content=params.model_dump_json())
+        data = resp.json()
+        assert len(data["artifacts"]) == 1
+        assert data["artifacts"][0]["name"] == "response"
+        assert data["artifacts"][0]["parts"][0]["text"] == "Result data."
 
     @patch("pocketpaw.a2a.server._dispatch_to_agent")
     @patch("pocketpaw.a2a.server._A2ASessionBridge")
@@ -260,7 +707,6 @@ class TestTasksSend:
         params = _make_send_params()
         resp = await client.post("/a2a/tasks/send", content=params.model_dump_json())
         data = resp.json()
-        # history should include the original user message + agent reply
         assert len(data["history"]) >= 2
         assert data["history"][0]["role"] == "user"
         assert data["history"][-1]["role"] == "agent"
@@ -279,7 +725,6 @@ class TestTasksGet:
 
     @pytest.mark.asyncio
     async def test_get_task_found(self, client):
-        # Pre-seed the store
         task = Task(
             id="known-task",
             status=TaskStatus(state=TaskState.WORKING),
@@ -319,6 +764,30 @@ class TestTasksCancel:
         assert resp.json()["status"] == "canceled"
         assert _tasks["cancel-me"].status.state == TaskState.CANCELED
         assert cancel_evt.is_set()
+
+    @pytest.mark.asyncio
+    async def test_cancel_terminal_state_rejected(self, client):
+        """Canceling a completed task should return 409."""
+        task = Task(
+            id="done-task",
+            status=TaskStatus(state=TaskState.COMPLETED),
+        )
+        _tasks["done-task"] = task
+
+        resp = await client.post("/a2a/tasks/done-task/cancel")
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_cancel_failed_task_rejected(self, client):
+        """Canceling a failed task should return 409."""
+        task = Task(
+            id="fail-task",
+            status=TaskStatus(state=TaskState.FAILED),
+        )
+        _tasks["fail-task"] = task
+
+        resp = await client.post("/a2a/tasks/fail-task/cancel")
+        assert resp.status_code == 409
 
 
 # ---------------------------------------------------------------------------
@@ -386,8 +855,8 @@ class TestTasksSendStream:
             assert data_line is not None, f"Missing 'data:' in: {block!r}"
             data_str = data_line.split(":", 1)[1].strip()
             parsed = json.loads(data_str)
-            assert "id" in parsed
-            assert "status" in parsed
+            # Every SSE data payload should be a valid dict
+            assert isinstance(parsed, dict)
 
     @patch("pocketpaw.a2a.server._dispatch_to_agent")
     @patch("pocketpaw.a2a.server._A2ASessionBridge")
@@ -418,8 +887,239 @@ class TestTasksSendStream:
         final = events[-1]
         data_line = next(line for line in final.split("\n") if line.startswith("data:"))
         parsed = json.loads(data_line.split(":", 1)[1].strip())
-        assert parsed["final"] is True
+        assert parsed.get("final") is True
         assert parsed["status"]["state"] == TaskState.COMPLETED
+
+    @patch("pocketpaw.a2a.server._dispatch_to_agent")
+    @patch("pocketpaw.a2a.server._A2ASessionBridge")
+    async def test_stream_emits_artifact_events(self, mock_bridge_cls, mock_dispatch, client):
+        bridge = MagicMock()
+        q = asyncio.Queue()
+        bridge.queue = q
+        bridge.start = AsyncMock()
+        bridge.stop = AsyncMock()
+        mock_bridge_cls.return_value = bridge
+        mock_dispatch.return_value = "a2a:artifact-stream"
+
+        async def _load():
+            await q.put({"type": "chunk", "content": "part1"})
+            await q.put({"type": "chunk", "content": "part2"})
+            await q.put({"type": "stream_end"})
+
+        await _load()
+        params = _make_send_params(task_id="artifact-stream")
+        async with client.stream(
+            "POST", "/a2a/tasks/send/stream", content=params.model_dump_json()
+        ) as resp:
+            raw = await resp.aread()
+            raw = raw.decode()
+
+        events = [e.strip() for e in raw.split("\n\n") if e.strip()]
+        # Should have artifact update events
+        artifact_events = [e for e in events if "task_artifact_update" in e]
+        assert len(artifact_events) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: POST /a2a (JSON-RPC 2.0)
+# ---------------------------------------------------------------------------
+
+
+class TestJSONRPCEndpoint:
+    @pytest.mark.asyncio
+    async def test_jsonrpc_parse_error(self, client):
+        resp = await client.post("/a2a", content=b"not json{{{")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["error"]["code"] == PARSE_ERROR
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_method_not_found(self, client):
+        resp = await client.post(
+            "/a2a",
+            json={"jsonrpc": "2.0", "id": 1, "method": "unknown/method"},
+        )
+        data = resp.json()
+        assert data["error"]["code"] == METHOD_NOT_FOUND
+
+    @patch("pocketpaw.a2a.server._dispatch_to_agent")
+    @patch("pocketpaw.a2a.server._A2ASessionBridge")
+    async def test_jsonrpc_message_send(self, mock_bridge_cls, mock_dispatch, client):
+        bridge = MagicMock()
+        q = asyncio.Queue()
+        bridge.queue = q
+        bridge.start = AsyncMock()
+        bridge.stop = AsyncMock()
+        mock_bridge_cls.return_value = bridge
+        mock_dispatch.return_value = "a2a:jsonrpc-task"
+
+        async def _load():
+            await q.put({"type": "chunk", "content": "JSONRPC response"})
+            await q.put({"type": "stream_end"})
+
+        await _load()
+
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "message/send",
+                "params": {
+                    "id": "jsonrpc-task",
+                    "message": {
+                        "role": "user",
+                        "parts": [{"type": "text", "text": "Hello via JSON-RPC"}],
+                    },
+                },
+            },
+        )
+        data = resp.json()
+        assert data["jsonrpc"] == "2.0"
+        assert data["id"] == 1
+        assert data["result"]["status"]["state"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_tasks_get_not_found(self, client):
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tasks/get",
+                "params": {"id": "nonexistent"},
+            },
+        )
+        data = resp.json()
+        assert data["error"]["code"] == TASK_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_tasks_get_found(self, client):
+        task = Task(id="rpc-task", status=TaskStatus(state=TaskState.WORKING))
+        _tasks["rpc-task"] = task
+
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tasks/get",
+                "params": {"id": "rpc-task"},
+            },
+        )
+        data = resp.json()
+        assert data["result"]["id"] == "rpc-task"
+        assert data["result"]["status"]["state"] == "working"
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_tasks_cancel(self, client):
+        task = Task(id="rpc-cancel", status=TaskStatus(state=TaskState.WORKING))
+        _tasks["rpc-cancel"] = task
+        _cancel_events["rpc-cancel"] = asyncio.Event()
+
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tasks/cancel",
+                "params": {"id": "rpc-cancel"},
+            },
+        )
+        data = resp.json()
+        assert data["result"]["status"] == "canceled"
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_tasks_cancel_terminal_state(self, client):
+        task = Task(id="rpc-done", status=TaskStatus(state=TaskState.COMPLETED))
+        _tasks["rpc-done"] = task
+
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tasks/cancel",
+                "params": {"id": "rpc-done"},
+            },
+        )
+        data = resp.json()
+        assert data["error"]["code"] == TASK_NOT_CANCELABLE
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_push_notification_unsupported(self, client):
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "tasks/pushNotificationConfig/set",
+                "params": {},
+            },
+        )
+        data = resp.json()
+        assert data["error"]["code"] == UNSUPPORTED_OPERATION
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_push_notification_get_unsupported(self, client):
+        resp = await client.post(
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tasks/pushNotificationConfig/get",
+                "params": {},
+            },
+        )
+        data = resp.json()
+        assert data["error"]["code"] == UNSUPPORTED_OPERATION
+
+    @patch("pocketpaw.a2a.server._dispatch_to_agent")
+    @patch("pocketpaw.a2a.server._A2ASessionBridge")
+    async def test_jsonrpc_message_stream_returns_sse(self, mock_bridge_cls, mock_dispatch, client):
+        bridge = MagicMock()
+        q = asyncio.Queue()
+        bridge.queue = q
+        bridge.start = AsyncMock()
+        bridge.stop = AsyncMock()
+        mock_bridge_cls.return_value = bridge
+        mock_dispatch.return_value = "a2a:rpc-stream"
+
+        async def _load():
+            await q.put({"type": "chunk", "content": "streaming"})
+            await q.put({"type": "stream_end"})
+
+        await _load()
+
+        async with client.stream(
+            "POST",
+            "/a2a",
+            json={
+                "jsonrpc": "2.0",
+                "id": 8,
+                "method": "message/stream",
+                "params": {
+                    "id": "rpc-stream",
+                    "message": {
+                        "role": "user",
+                        "parts": [{"type": "text", "text": "Stream me"}],
+                    },
+                },
+            },
+        ) as resp:
+            assert resp.status_code == 200
+            assert "text/event-stream" in resp.headers.get("content-type", "")
+            raw = await resp.aread()
+            raw = raw.decode()
+
+        events = [e.strip() for e in raw.split("\n\n") if e.strip()]
+        assert len(events) >= 2
+        # Each SSE event should have JSON-RPC wrapper
+        for block in events:
+            data_line = next((line for line in block.split("\n") if line.startswith("data:")), None)
+            assert data_line is not None
+            parsed = json.loads(data_line.split(":", 1)[1].strip())
+            assert parsed["jsonrpc"] == "2.0"
 
 
 # ---------------------------------------------------------------------------
@@ -460,3 +1160,20 @@ class TestA2ASessionBridge:
         item = await bridge.queue.get()
         assert item["type"] == "chunk"
         assert item["content"] == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Channel enum
+# ---------------------------------------------------------------------------
+
+
+class TestChannelEnum:
+    def test_a2a_channel_exists(self):
+        from pocketpaw.bus.events import Channel
+
+        assert Channel.A2A == "a2a"
+
+    def test_a2a_channel_is_distinct(self):
+        from pocketpaw.bus.events import Channel
+
+        assert Channel.A2A != Channel.WEBSOCKET

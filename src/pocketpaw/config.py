@@ -704,6 +704,22 @@ class Settings(BaseSettings):
         default=False,
         description="Enable the A2A Protocol remote endpoints (allow external delegates)",
     )
+    a2a_agent_name: str = Field(
+        default="PocketPaw",
+        description="Agent name advertised in the A2A Agent Card",
+    )
+    a2a_agent_description: str = Field(
+        default="",
+        description="Agent description for A2A Agent Card (empty = default)",
+    )
+    a2a_agent_version: str = Field(
+        default="",
+        description="Agent version for A2A Agent Card (empty = auto-detect from package)",
+    )
+    a2a_task_timeout: int = Field(
+        default=120,
+        description="Timeout in seconds for A2A task processing",
+    )
 
     # MCP OAuth
     mcp_client_metadata_url: str = Field(
