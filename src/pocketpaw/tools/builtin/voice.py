@@ -25,7 +25,7 @@ def _get_audio_dir() -> Path:
 
 async def synthesize_speech(text: str) -> str | None:
     """Standalone helper: synthesize text to an audio file using the configured TTS provider.
- 
+
     Returns the output file path on success, or None on failure.
     Designed for use by the agent loop (auto-TTS for voice replies).
     """

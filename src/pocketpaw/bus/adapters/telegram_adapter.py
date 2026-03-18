@@ -53,7 +53,9 @@ class TelegramAdapter(BaseChannelAdapter):
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing refresh task
         self._buffers: dict[str, Any] = {}
         self._voice_media_hints: dict[tuple[str, str], bool] = {}
-        self._voice_media_hints_ts: dict[tuple[str, str], float] = {}  # (chat_id, path) -> timestamp
+        self._voice_media_hints_ts: dict[
+            tuple[str, str], float
+        ] = {}  # (chat_id, path) -> timestamp
 
     @property
     def channel(self) -> Channel:
@@ -185,9 +187,7 @@ class TelegramAdapter(BaseChannelAdapter):
                 # Send any attached media files
                 for path in message.media or []:
                     hint_key = (message.chat_id, path)
-                    self._voice_media_hints[hint_key] = self._is_voice_media(
-                        path, message.metadata
-                    )
+                    self._voice_media_hints[hint_key] = self._is_voice_media(path, message.metadata)
                     self._voice_media_hints_ts[hint_key] = time.time()
                     self._cleanup_voice_media_hints()
                     await self._send_media_file(message.chat_id, path)

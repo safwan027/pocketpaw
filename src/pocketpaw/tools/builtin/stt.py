@@ -146,7 +146,9 @@ class SpeechToTextTool(BaseTool):
         settings = get_settings()
         api_key = settings.elevenlabs_api_key
         if not api_key:
-            return self._error("ElevenLabs API key not configured. Set POCKETPAW_ELEVENLABS_API_KEY.")
+            return self._error(
+                "ElevenLabs API key not configured. Set POCKETPAW_ELEVENLABS_API_KEY."
+            )
 
         # stt_model is the frontend-controlled generic field; fall back to the dedicated field
         model = settings.stt_model
