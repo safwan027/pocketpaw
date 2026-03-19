@@ -424,6 +424,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable conversation mode in all server channels (overrides channel list)",
     )
+    discord_conversation_exclude_channel_ids: list[int] = Field(
+        default_factory=list,
+        description="Channel IDs excluded from conversation mode (e.g. announcements)",
+    )
     discord_bot_name: str = Field(
         default="Paw", description="Display name used by the bot in conversation"
     )

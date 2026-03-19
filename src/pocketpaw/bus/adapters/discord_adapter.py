@@ -35,6 +35,7 @@ class DiscliAdapter(BaseChannelAdapter):
         allowed_channel_ids: list[int] | None = None,
         conversation_channel_ids: list[int] | None = None,
         conversation_all_channels: bool = False,
+        conversation_exclude_channel_ids: list[int] | None = None,
         bot_name: str = "Paw",
         status_type: str = "online",
         activity_type: str = "",
@@ -47,6 +48,9 @@ class DiscliAdapter(BaseChannelAdapter):
         self.allowed_channel_ids = allowed_channel_ids or []
         self.conversation_channel_ids: set[int] = set(conversation_channel_ids or [])
         self.conversation_all_channels = conversation_all_channels
+        self.conversation_exclude_channel_ids: set[int] = set(
+            conversation_exclude_channel_ids or []
+        )
         self.bot_name = bot_name or "Paw"
         self.status_type = (
             status_type if status_type in {"online", "idle", "dnd", "invisible"} else "online"
@@ -410,8 +414,10 @@ class DiscliAdapter(BaseChannelAdapter):
             _own_guild_ok = not self.allowed_guild_ids or (
                 guild_id and int(guild_id) in self.allowed_guild_ids
             )
-            if (self.conversation_all_channels and _own_guild_ok) or (
-                ch_id in self.conversation_channel_ids
+            _not_excluded = ch_id not in self.conversation_exclude_channel_ids
+            if _not_excluded and (
+                (self.conversation_all_channels and _own_guild_ok)
+                or ch_id in self.conversation_channel_ids
             ):
                 self._add_to_history(ch_id, _BOT_AUTHOR_KEY, content)
             return
@@ -423,9 +429,15 @@ class DiscliAdapter(BaseChannelAdapter):
         _in_allowed_guild = not self.allowed_guild_ids or (
             guild_id and int(guild_id) in self.allowed_guild_ids
         )
-        is_conversation = not is_dm and (
-            (self.conversation_all_channels and _in_allowed_guild)
-            or int(channel_id) in self.conversation_channel_ids
+        _ch_id = int(channel_id)
+        _not_excluded = _ch_id not in self.conversation_exclude_channel_ids
+        is_conversation = (
+            not is_dm
+            and _not_excluded
+            and (
+                (self.conversation_all_channels and _in_allowed_guild)
+                or _ch_id in self.conversation_channel_ids
+            )
         )
 
         # Track conversation history
