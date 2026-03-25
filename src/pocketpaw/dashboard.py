@@ -29,6 +29,7 @@ import base64
 import io
 import json
 import logging
+import re
 from pathlib import Path
 
 try:
@@ -516,9 +517,6 @@ async def install_skill(request: Request):
     if not source:
         return JSONResponse({"error": "Missing 'source' field"}, status_code=400)
 
-    if ".." in source or ";" in source or "|" in source or "&" in source:
-        return JSONResponse({"error": "Invalid source format"}, status_code=400)
-
     parts = source.split("/")
     if len(parts) < 2:
         return JSONResponse(
@@ -527,6 +525,14 @@ async def install_skill(request: Request):
 
     owner, repo = parts[0], parts[1]
     skill_name = parts[2] if len(parts) >= 3 else None
+
+    # Whitelist owner/repo to GitHub's actual naming rules.
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$", owner):
+        return JSONResponse({"error": "Invalid owner format"}, status_code=400)
+    if not re.match(r"^[a-zA-Z0-9._-]+$", repo):
+        return JSONResponse({"error": "Invalid repo format"}, status_code=400)
+    if skill_name and not re.match(r"^[a-zA-Z0-9._-]+$", skill_name):
+        return JSONResponse({"error": "Invalid skill name format"}, status_code=400)
 
     install_dir = Path.home() / ".agents" / "skills"
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -545,8 +551,14 @@ async def install_skill(request: Request):
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
             if proc.returncode != 0:
-                err = stderr.decode(errors="replace").strip()
-                return JSONResponse({"error": f"Clone failed: {err}"}, status_code=500)
+                # Log stderr internally but do not expose filesystem paths to clients.
+                logger.warning(
+                    "git clone stderr for %s/%s: %s",
+                    owner,
+                    repo,
+                    stderr.decode(errors="replace").strip(),
+                )
+                return JSONResponse({"error": "Skill clone failed"}, status_code=500)
 
             tmp = Path(tmpdir)
 
@@ -575,11 +587,34 @@ async def install_skill(request: Request):
 
             installed = []
             for name, src_dir in skill_dirs:
+                # Validate discovered skill directory names before copying.
+                if not re.match(r"^[a-zA-Z0-9._-]+$", name):
+                    logger.warning("Skipping skill directory with invalid name: %r", name)
+                    continue
                 dest = install_dir / name
                 if dest.exists():
                     shutil.rmtree(dest)
                 shutil.copytree(src_dir, dest)
                 installed.append(name)
+
+            if not installed:
+                return JSONResponse(
+                    {"error": "No valid skill directories found after validation"},
+                    status_code=400,
+                )
+
+            from pocketpaw.security.audit import AuditEvent, AuditSeverity, get_audit_logger
+
+            get_audit_logger().log(
+                AuditEvent.create(
+                    severity=AuditSeverity.WARNING,
+                    actor="dashboard_user",
+                    action="skill_install",
+                    target=f"{owner}/{repo}",
+                    status="success",
+                    installed=installed,
+                )
+            )
 
             loader = get_skill_loader()
             loader.reload()
@@ -587,9 +622,9 @@ async def install_skill(request: Request):
 
     except TimeoutError:
         return JSONResponse({"error": "Clone timed out (30s)"}, status_code=504)
-    except Exception as exc:
+    except Exception:
         logger.exception("Skill install failed")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse({"error": "Skill install failed"}, status_code=500)
 
 
 @app.post("/api/skills/remove")

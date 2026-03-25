@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -63,15 +64,20 @@ async def install_skill(request: Request):
     if not source:
         raise HTTPException(status_code=400, detail="Missing 'source' field")
 
-    if ".." in source or ";" in source or "|" in source or "&" in source:
-        raise HTTPException(status_code=400, detail="Invalid source format")
-
     parts = source.split("/")
     if len(parts) < 2:
         raise HTTPException(status_code=400, detail="Source must be owner/repo or owner/repo/skill")
 
     owner, repo = parts[0], parts[1]
     skill_name = parts[2] if len(parts) >= 3 else None
+
+    # Whitelist owner/repo to GitHub's actual naming rules.
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$", owner):
+        raise HTTPException(status_code=400, detail="Invalid owner format")
+    if not re.match(r"^[a-zA-Z0-9._-]+$", repo):
+        raise HTTPException(status_code=400, detail="Invalid repo format")
+    if skill_name and not re.match(r"^[a-zA-Z0-9._-]+$", skill_name):
+        raise HTTPException(status_code=400, detail="Invalid skill name format")
 
     install_dir = Path.home() / ".agents" / "skills"
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -90,8 +96,14 @@ async def install_skill(request: Request):
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
             if proc.returncode != 0:
-                err = stderr.decode(errors="replace").strip()
-                raise HTTPException(status_code=500, detail=f"Clone failed: {err}")
+                # Log stderr internally but do not expose filesystem paths to clients.
+                logger.warning(
+                    "git clone stderr for %s/%s: %s",
+                    owner,
+                    repo,
+                    stderr.decode(errors="replace").strip(),
+                )
+                raise HTTPException(status_code=500, detail="Skill clone failed")
 
             tmp = Path(tmpdir)
             skill_dirs: list[tuple[str, Path]] = []
@@ -117,11 +129,34 @@ async def install_skill(request: Request):
 
             installed = []
             for name, src_dir in skill_dirs:
+                # Validate discovered skill directory names before copying.
+                if not re.match(r"^[a-zA-Z0-9._-]+$", name):
+                    logger.warning("Skipping skill directory with invalid name: %r", name)
+                    continue
                 dest = install_dir / name
                 if dest.exists():
                     shutil.rmtree(dest)
                 shutil.copytree(src_dir, dest)
                 installed.append(name)
+
+            if not installed:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No valid skill directories found after validation",
+                )
+
+            from pocketpaw.security.audit import AuditEvent, AuditSeverity, get_audit_logger
+
+            get_audit_logger().log(
+                AuditEvent.create(
+                    severity=AuditSeverity.WARNING,
+                    actor="dashboard_user",
+                    action="skill_install",
+                    target=f"{owner}/{repo}",
+                    status="success",
+                    installed=installed,
+                )
+            )
 
             loader = get_skill_loader()
             loader.reload()
@@ -131,9 +166,9 @@ async def install_skill(request: Request):
         raise HTTPException(status_code=504, detail="Clone timed out (30s)")
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("Skill install failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Skill install failed")
 
 
 @router.post("/skills/remove")
