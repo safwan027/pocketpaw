@@ -122,7 +122,10 @@ class CredentialStore:
 
         try:
             # Command to extract the Hardware UUID on macOS
-            cmd = "ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/ { print $3 }' | tr -d '\"'"
+            cmd = (
+                "ioreg -rd1 -c IOPlatformExpertDevice | "
+                "awk '/IOPlatformUUID/ { print $3 }' | tr -d '\"'"
+            )
             result = subprocess.check_output(cmd, shell=True, text=True).strip()
             return result
         except (subprocess.SubprocessError, Exception):
