@@ -1,6 +1,7 @@
 # Tool CLI dispatcher — allows agent to call any builtin tool via Bash.
 #
 # Updated: 2026-02-17 — added health_check, error_log, config_doctor tools
+# Updated: 2026-03-27 — added add_widget, remove_widget tools
 #
 # Usage:
 #   python -m pocketpaw.tools.cli <tool_name> '<json_args>'
@@ -18,6 +19,7 @@ import json
 import sys
 
 from pocketpaw.tools.builtin import (
+    AddWidgetTool,
     CalendarCreateTool,
     CalendarListTool,
     CalendarPrepTool,
@@ -56,6 +58,7 @@ from pocketpaw.tools.builtin import (
     RedditSearchTool,
     RedditTrendingTool,
     RememberTool,
+    RemoveWidgetTool,
     RenameSessionTool,
     ResearchTool,
     SpeechToTextTool,
@@ -124,6 +127,8 @@ _TOOLS = {
         OpenExplorerTool(),
         DiscordCLITool(),
         CreatePocketTool(),
+        AddWidgetTool(),
+        RemoveWidgetTool(),
     ]
 }
 

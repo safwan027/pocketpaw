@@ -1,6 +1,8 @@
 # Pocket chat router — dedicated endpoint for pocket creation.
-# Intercepts tool_start events for create_pocket calls and
-# emits pocket_created SSE events with the parsed spec.
+# Updated: system prompt now teaches Ripple UniversalSpec v2.0 format
+# with intent='dashboard'. SSE parser updated to detect both legacy
+# and new pocket-spec markers. Also detects pocket-mutation markers
+# for AddWidgetTool / RemoveWidgetTool.
 
 from __future__ import annotations
 
@@ -27,8 +29,10 @@ _WS_PREFIX = "websocket_"
 
 # Match the JSON arg passed to create_pocket in a Bash command
 _CREATE_POCKET_RE = re.compile(r"create_pocket\s+'(.*?)'", re.DOTALL)
-# Also match pocket-spec markers in tool results
+# Match pocket-spec markers in tool results (UniversalSpec or legacy)
 _POCKET_SPEC_RE = re.compile(r"<!-- pocket-spec:(.*?):pocket-spec -->", re.DOTALL)
+# Match pocket-mutation markers from AddWidgetTool / RemoveWidgetTool
+_POCKET_MUTATION_RE = re.compile(r"<!-- pocket-mutation:(.*?):pocket-mutation -->", re.DOTALL)
 
 _POCKET_SYSTEM_CONTEXT = """\
 <pocket-creation-context>
@@ -37,38 +41,54 @@ The user wants a "pocket" — a themed workspace with data widgets.
 
 RULES:
 1. Use web_search to research the topic FIRST.
-2. Call create_pocket via Bash:
-   python -m pocketpaw.tools.cli create_pocket '<JSON>'
+2. Call the create_pocket tool directly with the JSON parameters.
 3. NEVER create HTML files or write files to disk.
 
-The create_pocket JSON:
+The create_pocket tool accepts these parameters and returns a Ripple UniversalSpec (v2.0):
 {
-  "name": "Company Analysis",
+  "title": "Company Analysis",
   "description": "Research overview",
   "category": "research",
   "color": "#0A84FF",
+  "columns": 3,
   "widgets": [
     {
-      "name": "Overview",
-      "color": "#30D158",
-      "span": "col-span-2",
-      "display": {
-        "type": "stats",
-        "stats": [
-          {"label": "Revenue", "value": "$10B", "trend": "+15%"},
-          {"label": "Employees", "value": "50K"}
-        ]
-      }
+      "type": "metric",
+      "title": "Revenue",
+      "size": "sm",
+      "data": {"value": "$10B", "label": "Revenue", "trend": "+15%"}
+    },
+    {
+      "type": "chart",
+      "title": "Revenue Over Time",
+      "size": "md",
+      "data": [{"label": "Q1", "value": 2400}, {"label": "Q2", "value": 3100}],
+      "props": {"type": "bar", "height": 200}
+    },
+    {
+      "type": "table",
+      "title": "Key People",
+      "size": "lg",
+      "data": {"columns": ["Name", "Role"], "data": [["Alice", "CEO"], ["Bob", "CTO"]]}
+    },
+    {
+      "type": "feed",
+      "title": "Recent News",
+      "size": "md",
+      "data": {"items": [{"text": "Launched v2.0", "time": "2h ago", "type": "success"}]}
     }
   ]
 }
 
-Widget display types:
-- stats: {type:"stats", stats:[{label, value, trend?}]}
-- chart: {type:"chart", bars:[{label, value, color?}]}
-- table: {type:"table", headers:[], rows:[{cells:[], status?}]}
-- feed: {type:"feed", feedItems:[{text, time?, type?}]}
-- metric: {type:"metric", metric:{label, value, trend?, description?}}
+Widget types:
+- metric: single KPI. data: {value, label, trend?}
+- chart: bar/line/area/pie. data: [{label, value}], props: {type, height?}
+- table: data grid. data: {columns: [str], data: [[cell, ...]]}
+- feed: event list. data: {items: [{text, time?, type?}]}
+- terminal: log output. data: {lines: [{text, type?, timestamp?}]}, props: {title?}
+- text: markdown. data: {content: "markdown string"}
+
+Widget sizes: "sm" (1 col), "md" (2 cols), "lg" (full width)
 
 Create 6-8 widgets with REAL data from web_search.
 </pocket-creation-context>
@@ -155,12 +175,12 @@ async def pocket_chat_stream(body: ChatRequest):
                             pocket_emitted = True
                             logger.info(
                                 "Pocket extracted from tool_start: %s (%d widgets)",
-                                spec.get("name", "?"),
+                                spec.get("title", spec.get("name", "?")),
                                 len(spec.get("widgets", [])),
                             )
                             yield (f"event: pocket_created\ndata: {json.dumps(spec)}\n\n")
 
-                # Check tool_result for pocket-spec markers
+                # Check tool_result for pocket-spec markers (UniversalSpec)
                 if etype == "tool_result" and not pocket_emitted:
                     result = edata.get("result", "")
                     if isinstance(result, str):
@@ -170,6 +190,21 @@ async def pocket_chat_stream(body: ChatRequest):
                                 spec = json.loads(m.group(1))
                                 pocket_emitted = True
                                 yield (f"event: pocket_created\ndata: {json.dumps(spec)}\n\n")
+                            except json.JSONDecodeError:
+                                pass
+
+                # Check tool_result for pocket-mutation markers (add/remove widget)
+                if etype == "tool_result":
+                    result = edata.get("result", "")
+                    if isinstance(result, str):
+                        m = _POCKET_MUTATION_RE.search(result)
+                        if m:
+                            try:
+                                mutation = json.loads(m.group(1))
+                                yield (
+                                    f"event: pocket_mutation\n"
+                                    f"data: {json.dumps(mutation)}\n\n"
+                                )
                             except json.JSONDecodeError:
                                 pass
 
