@@ -136,15 +136,28 @@ window.PocketPaw.Sessions = {
             /**
              * Export an arbitrary session (by id) as JSON or Markdown download
              */
-            exportSessionById(id, format) {
+            async exportSessionById(id, format) {
                 const url = `/api/memory/session/export?id=${encodeURIComponent(id)}&format=${format}`;
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = '';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                this.showToast(`Exported as ${format.toUpperCase()}`, 'success');
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+                    const blob = await res.blob();
+                    const disposition = res.headers.get('Content-Disposition') || '';
+                    const match = disposition.match(/filename="?(.+?)"?$/);
+                    const filename = match ? match[1] : `session-${id.slice(0, 20)}.${format === 'md' ? 'md' : 'json'}`;
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                    this.showToast(`Exported as ${format.toUpperCase()}`, 'success');
+                } catch (e) {
+                    console.error('[Sessions] Export failed:', e);
+                    this.showToast('Export failed', 'error');
+                }
             },
 
             /**
