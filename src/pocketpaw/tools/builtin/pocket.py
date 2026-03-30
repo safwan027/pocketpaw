@@ -396,9 +396,25 @@ class AddWidgetTool(BaseTool):
             "title": widget.get("title", "New Widget"),
             "size": widget.get("size", "sm"),
             "data": widget.get("data", {}),
+            "props": widget.get("props") or {},
         }
-        if widget.get("props"):
-            built_widget["props"] = widget["props"]
+
+        # Normalize table data: LLM produces {columns:[str], data:[[...]]}
+        # but the Ripple Table component needs props.columns=[{accessorKey,header}]
+        # and data=[{col: val, ...}] (object rows).
+        if built_widget["type"] == "table":
+            data = built_widget["data"]
+            if isinstance(data, dict) and "columns" in data and "data" in data:
+                cols = data["columns"]
+                rows = data["data"]
+                built_widget["props"]["columns"] = [
+                    {"accessorKey": c, "header": c} for c in cols
+                ]
+                built_widget["data"] = [
+                    {cols[ci]: cell for ci, cell in enumerate(row) if ci < len(cols)}
+                    for row in rows
+                    if isinstance(row, list)
+                ]
 
         mutation = {
             "action": "add_widget",
