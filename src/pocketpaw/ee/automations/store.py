@@ -1,5 +1,6 @@
 # Automations store — JSON file-based persistence for automation rules.
 # Created: 2026-03-30 — CRUD ops, toggle, fire recording. Persists to ~/.pocketpaw/automations/.
+# Updated: 2026-03-30 — create_rule now passes mode/cooldown_minutes from request.
 
 from __future__ import annotations
 
@@ -42,6 +43,8 @@ class AutomationStore:
             value=req.value,
             schedule=req.schedule,
             action=req.action,
+            **({"mode": req.mode} if req.mode is not None else {}),
+            **({"cooldown_minutes": req.cooldown_minutes} if req.cooldown_minutes is not None else {}),
         )
         self._rules[rule.id] = rule
         self._save()
