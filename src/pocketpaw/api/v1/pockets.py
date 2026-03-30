@@ -326,15 +326,16 @@ async def pocket_chat_stream(body: ChatRequest):
     chat_id = _extract_chat_id(body.session_id)
     safe_key = _to_safe_key(chat_id)
 
-    augmented_content = _POCKET_SYSTEM_CONTEXT + body.content
-
     msg = InboundMessage(
         channel=Channel.WEBSOCKET,
-        sender_id="api_client",
+        sender_id=chat_id,
         chat_id=chat_id,
-        content=augmented_content,
+        content=body.content,
         media=body.media,
-        metadata={"source": "pocket_chat"},
+        metadata={
+            "source": "pocket_chat",
+            "pocket_system_context": _POCKET_SYSTEM_CONTEXT,
+        },
     )
     bus = get_message_bus()
     await bus.publish_inbound(msg)

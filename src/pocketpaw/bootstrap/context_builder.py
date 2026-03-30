@@ -137,6 +137,10 @@ class AgentContextBuilder:
                     channel_instructions += "\n\n## Current Context\n" + "\n".join(ctx_lines)
                 parts.append(channel_instructions)
 
+        # 4c. Inject pocket creation context (from pocket chat endpoint)
+        if metadata and metadata.get("pocket_system_context"):
+            parts.append(metadata["pocket_system_context"])
+
         # 5. Inject session key for session management tools
         if session_key:
             parts.append(

@@ -532,12 +532,16 @@ class AgentLoop:
                     )
                     content = pii_result.sanitized_text
 
-            # 1. Store User Message
+            # 1. Store User Message (strip bulky transient context from stored metadata)
+            store_meta = {
+                k: v for k, v in (message.metadata or {}).items()
+                if k != "pocket_system_context"
+            }
             await self.memory.add_to_session(
                 session_key=session_key,
                 role="user",
                 content=content,
-                metadata=message.metadata,
+                metadata=store_meta,
             )
 
             # 1b. Inject inbound media file paths so the agent can use them
