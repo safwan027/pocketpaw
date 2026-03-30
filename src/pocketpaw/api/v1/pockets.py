@@ -246,11 +246,16 @@ def _prepare_pocket_spec(spec: dict) -> dict | None:
                 logger.warning("Dropping table %r: empty columns/rows", title)
                 continue
             rw["props"]["columns"] = [{"accessorKey": c, "header": c} for c in cols]
-            rw["data"] = [
-                {cols[ci]: cell for ci, cell in enumerate(row) if ci < len(cols)}
-                for row in rows
-                if isinstance(row, list)
-            ]
+            # Rows may be lists (LLM-generated) or dicts (from data sources like MongoDB)
+            processed_rows = []
+            for row in rows:
+                if isinstance(row, list):
+                    processed_rows.append(
+                        {cols[ci]: cell for ci, cell in enumerate(row) if ci < len(cols)}
+                    )
+                elif isinstance(row, dict):
+                    processed_rows.append(row)
+            rw["data"] = processed_rows
 
         elif wtype == "feed":
             # Feed expects data = [{text, time?, type?}] (flat array, not wrapped)
