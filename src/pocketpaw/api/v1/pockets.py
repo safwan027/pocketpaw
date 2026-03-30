@@ -235,7 +235,7 @@ def _prepare_pocket_spec(spec: dict) -> dict | None:
 
         elif wtype == "table":
             # Table component expects:
-            #   props.columns = [{key: "Name", label: "Name"}, ...]
+            #   props.columns = [{accessorKey: "Name", header: "Name"}, ...]
             #   props.data    = [{Name: "Alice", Role: "CEO"}, ...]
             if not isinstance(data, dict):
                 logger.warning("Dropping table %r: data not object", title)
@@ -245,7 +245,7 @@ def _prepare_pocket_spec(spec: dict) -> dict | None:
             if not cols or not rows:
                 logger.warning("Dropping table %r: empty columns/rows", title)
                 continue
-            rw["props"]["columns"] = [{"key": c, "label": c} for c in cols]
+            rw["props"]["columns"] = [{"accessorKey": c, "header": c} for c in cols]
             rw["data"] = [
                 {cols[ci]: cell for ci, cell in enumerate(row) if ci < len(cols)}
                 for row in rows
