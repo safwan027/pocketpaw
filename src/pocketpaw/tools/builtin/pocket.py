@@ -170,7 +170,10 @@ class CreatePocketTool(BaseTool):
             "- feed: activity feed. data: {items: [{text, time?, type?}]}\n"
             "- terminal: log output. data: {lines: [{text, type?, timestamp?}]}, "
             "props: {title?, interactive?}\n"
-            "- text: markdown block. data: {content: 'markdown string'}\n\n"
+            "- text: markdown block. data: {content: 'markdown string'}\n"
+            "- workflow: node-based DAG. data: {nodes: [{id, type, label, status?}], "
+            "edges: [{from, to, label?}]}. Node types: trigger, action, condition, "
+            "approval, connector, output. Size should be 'lg' (full width).\n\n"
             "Widget sizes: 'sm' (1 col), 'md' (2 cols), 'lg' (3 cols / full width).\n\n"
             "Colors: #30D158 (green), #FF453A (red), #FF9F0A (orange), "
             "#0A84FF (blue), #BF5AF2 (purple), #5E5CE6 (indigo)."
@@ -224,7 +227,7 @@ class CreatePocketTool(BaseTool):
                                 "type": "string",
                                 "description": "Widget type: metric, chart, table, "
                             "feed, terminal, text",
-                                "enum": ["metric", "chart", "table", "feed", "terminal", "text"],
+                                "enum": ["metric", "chart", "table", "feed", "terminal", "text", "workflow"],
                             },
                             "title": {
                                 "type": "string",
@@ -278,7 +281,7 @@ class CreatePocketTool(BaseTool):
 
             # If widget already has Ripple 'type' field, use it directly
             if "type" in w and w["type"] in (
-                "metric", "chart", "table", "feed", "terminal", "text",
+                "metric", "chart", "table", "feed", "terminal", "text", "workflow",
             ):
                 widget = {
                     "id": w.get("id", wid),
@@ -362,7 +365,7 @@ class AddWidgetTool(BaseTool):
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["metric", "chart", "table", "feed", "terminal", "text"],
+                            "enum": ["metric", "chart", "table", "feed", "terminal", "text", "workflow"],
                         },
                         "title": {"type": "string"},
                         "size": {"type": "string", "enum": ["sm", "md", "lg"]},
