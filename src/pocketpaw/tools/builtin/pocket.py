@@ -171,9 +171,26 @@ class CreatePocketTool(BaseTool):
             "- terminal: log output. data: {lines: [{text, type?, timestamp?}]}, "
             "props: {title?, interactive?}\n"
             "- text: markdown block. data: {content: 'markdown string'}\n"
-            "- workflow: node-based DAG. data: {nodes: [{id, type, label, status?}], "
-            "edges: [{from, to, label?}]}. Node types: trigger, action, condition, "
-            "approval, connector, output. Size should be 'lg' (full width).\n\n"
+            "- workflow: node-based pipeline/DAG. Size MUST be 'lg'. "
+            "data MUST be an object with 'nodes' array and 'edges' array.\n"
+            "  Example workflow widget:\n"
+            '  {"type":"workflow","title":"CI Pipeline","size":"lg","data":{'
+            '"nodes":['
+            '{"id":"t1","type":"trigger","label":"Push Code"},'
+            '{"id":"a1","type":"action","label":"Build"},'
+            '{"id":"a2","type":"action","label":"Test"},'
+            '{"id":"c1","type":"condition","label":"Pass?"},'
+            '{"id":"o1","type":"output","label":"Deploy"},'
+            '{"id":"o2","type":"output","label":"Fix"}'
+            '],"edges":['
+            '{"from":"t1","to":"a1"},'
+            '{"from":"a1","to":"a2"},'
+            '{"from":"a2","to":"c1"},'
+            '{"from":"c1","to":"o1","label":"yes"},'
+            '{"from":"c1","to":"o2","label":"no"}'
+            ']}}\n'
+            "  Node types: trigger (blue), action (green), condition (orange), "
+            "approval (amber), connector (purple), output (teal).\n\n"
             "Widget sizes: 'sm' (1 col), 'md' (2 cols), 'lg' (3 cols / full width).\n\n"
             "Colors: #30D158 (green), #FF453A (red), #FF9F0A (orange), "
             "#0A84FF (blue), #BF5AF2 (purple), #5E5CE6 (indigo)."
