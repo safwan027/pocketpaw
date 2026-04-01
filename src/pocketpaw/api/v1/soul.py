@@ -73,6 +73,7 @@ async def get_soul_status():
 async def get_core_memory():
     """Return the soul's core memory (persona and human description)."""
     from pocketpaw.soul.manager import get_soul_manager
+
     mgr = get_soul_manager()
     if mgr is None or mgr.soul is None:
         return {"error": "Soul not available"}
@@ -89,6 +90,7 @@ async def get_core_memory():
 async def edit_core_memory(body: dict):
     """Edit core memory. Body: {"persona": "...", "human": "..."}"""
     from pocketpaw.soul.manager import get_soul_manager
+
     mgr = get_soul_manager()
     if mgr is None or mgr.soul is None:
         return {"error": "Soul not available"}
@@ -108,6 +110,7 @@ async def edit_core_memory(body: dict):
 async def soul_remember(body: dict):
     """Store a memory. Body: {"content": "...", "importance": 5}"""
     from pocketpaw.soul.manager import get_soul_manager
+
     mgr = get_soul_manager()
     if mgr is None or mgr.soul is None:
         return {"error": "Soul not available"}
@@ -127,12 +130,15 @@ async def soul_remember(body: dict):
 async def soul_recall(body: dict):
     """Search memories. Body: {"query": "...", "limit": 10}"""
     from pocketpaw.soul.manager import get_soul_manager
+
     mgr = get_soul_manager()
     if mgr is None or mgr.soul is None:
         return {"error": "Soul not available"}
     try:
         memories = await mgr.soul.recall(body.get("query", ""), limit=body.get("limit", 10))
-        return [m.model_dump() if hasattr(m, "model_dump") else {"content": str(m)} for m in memories]
+        return [
+            m.model_dump() if hasattr(m, "model_dump") else {"content": str(m)} for m in memories
+        ]
     except Exception as exc:
         return {"error": f"Failed: {exc}"}
 
@@ -141,6 +147,7 @@ async def soul_recall(body: dict):
 async def soul_forget(body: dict):
     """Forget memories matching query. Body: {"query": "..."}"""
     from pocketpaw.soul.manager import get_soul_manager
+
     mgr = get_soul_manager()
     if mgr is None or mgr.soul is None:
         return {"error": "Soul not available"}
