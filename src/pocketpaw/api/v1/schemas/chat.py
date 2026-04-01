@@ -37,6 +37,15 @@ class ChatRequest(BaseModel):
     file_context: FileContext | None = None
     pocket_context: PocketContext | None = None
 
+    # Enterprise overrides (all optional, ignored in community mode)
+    agent_id: str | None = None
+    workspace_id: str | None = None
+    system_prompt: str | None = None
+    model: str | None = None
+    tools: list[str] | None = None
+    soul_path: str | None = None
+    channel: str | None = None  # "enterprise" for NestJS requests
+
 
 class ChatChunk(BaseModel):
     """A single SSE event chunk."""
