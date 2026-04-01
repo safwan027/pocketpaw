@@ -57,6 +57,7 @@ actions:
   - name: get_order
     description: Get detailed order information
     method: GET
+    url: "https://{SHOPIFY_STORE_URL}/admin/api/2024-01/orders/{order_id}.json"
     params:
       order_id: { type: string, required: true }
     trust_level: auto

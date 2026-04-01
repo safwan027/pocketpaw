@@ -8,6 +8,9 @@ icon: alert-triangle
 
 auth:
   method: bearer
+  headers:
+    Accept: application/vnd.pagerduty+json;version=2
+    Content-Type: application/json
   credentials:
     - name: PAGERDUTY_API_KEY
       description: PagerDuty REST API key (v2)
@@ -27,6 +30,7 @@ actions:
   - name: get_incident
     description: Get details of a specific incident
     method: GET
+    url: https://api.pagerduty.com/incidents/{incident_id}
     params:
       incident_id: { type: string, required: true }
     trust_level: auto
@@ -58,6 +62,7 @@ actions:
   - name: acknowledge_incident
     description: Acknowledge an open incident
     method: PUT
+    url: https://api.pagerduty.com/incidents/{incident_id}
     params:
       incident_id: { type: string, required: true }
     body:
@@ -70,6 +75,7 @@ actions:
   - name: resolve_incident
     description: Resolve an incident
     method: PUT
+    url: https://api.pagerduty.com/incidents/{incident_id}
     params:
       incident_id: { type: string, required: true }
     body:
@@ -93,6 +99,7 @@ actions:
   - name: add_note
     description: Add a note to an incident
     method: POST
+    url: https://api.pagerduty.com/incidents/{incident_id}/notes
     params:
       incident_id: { type: string, required: true }
     body:

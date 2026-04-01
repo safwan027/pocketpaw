@@ -39,6 +39,7 @@ actions:
   - name: get_ticket
     description: Get ticket details including conversations
     method: GET
+    url: "https://{FRESHDESK_DOMAIN}.freshdesk.com/api/v2/tickets/{ticket_id}"
     params:
       ticket_id: { type: integer, required: true }
       include: { type: string, default: "conversations,requester,stats" }
@@ -60,6 +61,7 @@ actions:
   - name: reply_to_ticket
     description: Add a reply to a ticket
     method: POST
+    url: "https://{FRESHDESK_DOMAIN}.freshdesk.com/api/v2/tickets/{ticket_id}/reply"
     params:
       ticket_id: { type: integer, required: true }
     body:
@@ -69,6 +71,7 @@ actions:
   - name: update_ticket
     description: Update ticket properties
     method: PUT
+    url: "https://{FRESHDESK_DOMAIN}.freshdesk.com/api/v2/tickets/{ticket_id}"
     params:
       ticket_id: { type: integer, required: true }
     body:

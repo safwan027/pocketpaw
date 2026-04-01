@@ -42,6 +42,7 @@ actions:
   - name: get_page
     description: Get a specific page by ID
     method: GET
+    url: "{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}"
     params:
       page_id: { type: string, required: true }
       expand: { type: string, default: "body.storage,version,space,ancestors" }
@@ -50,6 +51,7 @@ actions:
   - name: get_page_children
     description: List child pages of a page
     method: GET
+    url: "{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}/child/page"
     params:
       page_id: { type: string, required: true }
       limit: { type: integer, default: 25 }
@@ -58,8 +60,9 @@ actions:
   - name: list_space_pages
     description: List pages in a specific space
     method: GET
+    url: "{CONFLUENCE_BASE_URL}/rest/api/content"
     params:
-      space_key: { type: string, required: true, description: "Space key (e.g. TEAM)" }
+      spaceKey: { type: string, required: true, description: "Space key (e.g. TEAM)" }
       limit: { type: integer, default: 25 }
     trust_level: auto
 
@@ -78,6 +81,7 @@ actions:
   - name: update_page
     description: Update an existing Confluence page
     method: PUT
+    url: "{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}"
     params:
       page_id: { type: string, required: true }
     body:
@@ -90,6 +94,7 @@ actions:
   - name: get_page_comments
     description: Get comments on a page
     method: GET
+    url: "{CONFLUENCE_BASE_URL}/rest/api/content/{page_id}/child/comment"
     params:
       page_id: { type: string, required: true }
       limit: { type: integer, default: 25 }

@@ -30,6 +30,7 @@ actions:
   - name: list_issues
     description: List issues for a project
     method: GET
+    url: https://gitlab.com/api/v4/projects/{project_id}/issues
     params:
       project_id: { type: string, required: true, description: "Project ID or URL-encoded path" }
       state: { type: string, enum: [opened, closed, all], default: opened }
@@ -39,6 +40,7 @@ actions:
   - name: list_merge_requests
     description: List merge requests for a project
     method: GET
+    url: https://gitlab.com/api/v4/projects/{project_id}/merge_requests
     params:
       project_id: { type: string, required: true }
       state: { type: string, enum: [opened, closed, merged, all], default: opened }
@@ -48,6 +50,7 @@ actions:
   - name: list_pipelines
     description: List CI/CD pipelines for a project
     method: GET
+    url: https://gitlab.com/api/v4/projects/{project_id}/pipelines
     params:
       project_id: { type: string, required: true }
       status: { type: string, enum: [running, pending, success, failed, canceled, skipped] }
@@ -57,6 +60,7 @@ actions:
   - name: get_pipeline_jobs
     description: List jobs in a specific pipeline
     method: GET
+    url: https://gitlab.com/api/v4/projects/{project_id}/pipelines/{pipeline_id}/jobs
     params:
       project_id: { type: string, required: true }
       pipeline_id: { type: integer, required: true }
@@ -74,6 +78,7 @@ actions:
   - name: create_issue
     description: Create a new project issue
     method: POST
+    url: https://gitlab.com/api/v4/projects/{project_id}/issues
     params:
       project_id: { type: string, required: true }
     body:
@@ -86,6 +91,7 @@ actions:
   - name: list_environments
     description: List deployment environments
     method: GET
+    url: https://gitlab.com/api/v4/projects/{project_id}/environments
     params:
       project_id: { type: string, required: true }
       per_page: { type: integer, default: 20 }

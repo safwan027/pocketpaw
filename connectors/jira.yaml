@@ -33,6 +33,7 @@ actions:
   - name: get_issue
     description: Get a specific issue by key
     method: GET
+    url: "{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}"
     params:
       issue_key: { type: string, required: true, description: "Issue key (e.g. PROJ-123)" }
     trust_level: auto
@@ -48,6 +49,7 @@ actions:
   - name: list_sprints
     description: List sprints for a board
     method: GET
+    url: "{JIRA_BASE_URL}/rest/agile/1.0/board/{board_id}/sprint"
     params:
       board_id: { type: integer, required: true }
       state: { type: string, enum: [active, future, closed], default: active }
@@ -67,6 +69,7 @@ actions:
   - name: transition_issue
     description: Move an issue to a new status
     method: POST
+    url: "{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions"
     params:
       issue_key: { type: string, required: true }
     body:
@@ -79,6 +82,7 @@ actions:
   - name: add_comment
     description: Add a comment to an issue
     method: POST
+    url: "{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/comment"
     params:
       issue_key: { type: string, required: true }
     body:
@@ -91,6 +95,7 @@ actions:
   - name: assign_issue
     description: Assign an issue to a user
     method: PUT
+    url: "{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/assignee"
     params:
       issue_key: { type: string, required: true }
     body:

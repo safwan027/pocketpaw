@@ -34,6 +34,7 @@ actions:
   - name: get_incident
     description: Get a specific incident by number or sys_id
     method: GET
+    url: "{SNOW_INSTANCE_URL}/api/now/table/incident/{sys_id}"
     params:
       sys_id: { type: string, required: true, description: "Incident sys_id or number" }
       sysparm_display_value: { type: boolean, default: true }
@@ -86,6 +87,7 @@ actions:
   - name: update_incident
     description: Update an incident
     method: PATCH
+    url: "{SNOW_INSTANCE_URL}/api/now/table/incident/{sys_id}"
     params:
       sys_id: { type: string, required: true }
     body:

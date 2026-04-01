@@ -94,6 +94,7 @@ actions:
   - name: mute_monitor
     description: Mute a monitor
     method: POST
+    url: https://api.datadoghq.com/api/v1/monitor/{monitor_id}/mute
     params:
       monitor_id: { type: integer, required: true }
     body:

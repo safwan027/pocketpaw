@@ -8,6 +8,8 @@ icon: book-open
 
 auth:
   method: bearer
+  headers:
+    Notion-Version: "2022-06-28"
   credentials:
     - name: NOTION_API_KEY
       description: Notion integration token (internal integration secret)
@@ -36,6 +38,7 @@ actions:
   - name: query_database
     description: Query a Notion database with filters and sorts
     method: POST
+    url: https://api.notion.com/v1/databases/{database_id}/query
     params:
       database_id: { type: string, required: true, description: "Database UUID" }
     body:
@@ -47,6 +50,7 @@ actions:
   - name: get_page
     description: Retrieve a Notion page and its properties
     method: GET
+    url: https://api.notion.com/v1/pages/{page_id}
     params:
       page_id: { type: string, required: true, description: "Page UUID" }
     trust_level: auto
@@ -54,6 +58,7 @@ actions:
   - name: get_page_content
     description: Get the block content (body) of a page
     method: GET
+    url: https://api.notion.com/v1/blocks/{block_id}/children
     params:
       block_id: { type: string, required: true, description: "Page or block UUID" }
       page_size: { type: integer, default: 100 }
@@ -72,6 +77,7 @@ actions:
   - name: update_page
     description: Update page properties
     method: PATCH
+    url: https://api.notion.com/v1/pages/{page_id}
     params:
       page_id: { type: string, required: true }
     body:
@@ -81,6 +87,7 @@ actions:
   - name: append_blocks
     description: Append content blocks to a page
     method: PATCH
+    url: https://api.notion.com/v1/blocks/{block_id}/children
     params:
       block_id: { type: string, required: true, description: "Parent page/block UUID" }
     body:

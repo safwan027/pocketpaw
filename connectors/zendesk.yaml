@@ -42,6 +42,7 @@ actions:
   - name: get_ticket
     description: Get a specific ticket with comments
     method: GET
+    url: "https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}"
     params:
       ticket_id: { type: integer, required: true }
     trust_level: auto
@@ -49,6 +50,7 @@ actions:
   - name: list_ticket_comments
     description: Get all comments/replies on a ticket
     method: GET
+    url: "https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}/comments"
     params:
       ticket_id: { type: integer, required: true }
       per_page: { type: integer, default: 50 }
@@ -68,6 +70,7 @@ actions:
   - name: update_ticket
     description: Update a ticket (status, priority, assignee, etc.)
     method: PUT
+    url: "https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}"
     params:
       ticket_id: { type: integer, required: true }
     body:
@@ -80,6 +83,7 @@ actions:
   - name: add_ticket_comment
     description: Add a comment/reply to a ticket
     method: PUT
+    url: "https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}"
     params:
       ticket_id: { type: integer, required: true }
     body:
@@ -101,6 +105,7 @@ actions:
   - name: ticket_metrics
     description: Get ticket metrics and SLA data
     method: GET
+    url: "https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/{ticket_id}/metrics"
     params:
       ticket_id: { type: integer, required: true }
     trust_level: auto

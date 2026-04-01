@@ -25,6 +25,7 @@ actions:
   - name: list_channels
     description: List channels in a team
     method: GET
+    url: https://graph.microsoft.com/v1.0/teams/{team_id}/channels
     params:
       team_id: { type: string, required: true }
     trust_level: auto
@@ -32,6 +33,7 @@ actions:
   - name: channel_messages
     description: Get recent messages from a channel
     method: GET
+    url: https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages
     params:
       team_id: { type: string, required: true }
       channel_id: { type: string, required: true }
@@ -48,6 +50,7 @@ actions:
   - name: chat_messages
     description: Get messages from a chat
     method: GET
+    url: https://graph.microsoft.com/v1.0/chats/{chat_id}/messages
     params:
       chat_id: { type: string, required: true }
       $top: { type: integer, default: 25 }
@@ -67,6 +70,7 @@ actions:
   - name: list_team_members
     description: List members of a team
     method: GET
+    url: https://graph.microsoft.com/v1.0/teams/{team_id}/members
     params:
       team_id: { type: string, required: true }
     trust_level: auto
@@ -74,6 +78,7 @@ actions:
   - name: send_channel_message
     description: Send a message to a Teams channel
     method: POST
+    url: https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages
     params:
       team_id: { type: string, required: true }
       channel_id: { type: string, required: true }

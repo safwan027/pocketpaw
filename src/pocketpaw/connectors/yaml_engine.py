@@ -139,6 +139,15 @@ class DirectRESTAdapter:
         method = act_def.get("method", "GET").upper()
         url = act_def.get("url", "")
 
+        # Substitute {placeholder} in URL templates — check credentials first, then params
+        if url:
+            import re
+            for placeholder in re.findall(r"\{(\w+)\}", url):
+                if placeholder in self._credentials:
+                    url = url.replace(f"{{{placeholder}}}", self._credentials[placeholder])
+                elif placeholder in params:
+                    url = url.replace(f"{{{placeholder}}}", str(params.pop(placeholder)))
+
         # If no hardcoded URL, build from BASE_URL credential + path param
         if not url and method != "LOCAL":
             base = self._credentials.get("BASE_URL", "")
@@ -226,7 +235,8 @@ class DirectRESTAdapter:
 
     def _build_auth_headers(self) -> dict[str, str]:
         """Build auth headers from stored credentials based on auth method."""
-        headers: dict[str, str] = {}
+        # Start with default headers from connector definition
+        headers: dict[str, str] = dict(self._def.auth.get("headers", {}))
         auth_method = self._def.auth.get("method", "none")
 
         if auth_method == "api_key":

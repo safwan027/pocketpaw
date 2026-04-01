@@ -8,6 +8,9 @@ icon: git-branch
 
 auth:
   method: bearer
+  headers:
+    Accept: application/vnd.github+json
+    X-GitHub-Api-Version: "2022-11-28"
   credentials:
     - name: GITHUB_TOKEN
       description: GitHub personal access token (classic or fine-grained)
@@ -20,22 +23,26 @@ actions:
     url: https://api.github.com/user/repos
     params:
       sort: { type: string, enum: [created, updated, pushed, full_name], default: updated }
-      per_page: { type: integer, default: 25 }
+      per_page: { type: integer, default: 100 }
+      page: { type: integer, default: 1, description: "Page number for pagination" }
       type: { type: string, enum: [all, owner, public, private, member], default: all }
     trust_level: auto
 
   - name: list_org_repos
     description: List repositories for an organization
     method: GET
+    url: https://api.github.com/orgs/{org}/repos
     params:
       org: { type: string, required: true, description: "Organization name" }
-      per_page: { type: integer, default: 25 }
+      per_page: { type: integer, default: 100 }
+      page: { type: integer, default: 1, description: "Page number for pagination" }
       sort: { type: string, enum: [created, updated, pushed, full_name], default: updated }
     trust_level: auto
 
   - name: list_issues
     description: List issues for a repository
     method: GET
+    url: https://api.github.com/repos/{owner}/{repo}/issues
     params:
       owner: { type: string, required: true }
       repo: { type: string, required: true }
@@ -47,6 +54,7 @@ actions:
   - name: list_pull_requests
     description: List pull requests for a repository
     method: GET
+    url: https://api.github.com/repos/{owner}/{repo}/pulls
     params:
       owner: { type: string, required: true }
       repo: { type: string, required: true }
@@ -75,6 +83,7 @@ actions:
   - name: get_repo
     description: Get repository details
     method: GET
+    url: https://api.github.com/repos/{owner}/{repo}
     params:
       owner: { type: string, required: true }
       repo: { type: string, required: true }
@@ -83,6 +92,7 @@ actions:
   - name: create_issue
     description: Create a new issue
     method: POST
+    url: https://api.github.com/repos/{owner}/{repo}/issues
     params:
       owner: { type: string, required: true }
       repo: { type: string, required: true }
@@ -96,6 +106,7 @@ actions:
   - name: list_actions_runs
     description: List recent GitHub Actions workflow runs
     method: GET
+    url: https://api.github.com/repos/{owner}/{repo}/actions/runs
     params:
       owner: { type: string, required: true }
       repo: { type: string, required: true }
@@ -106,6 +117,7 @@ actions:
   - name: list_releases
     description: List releases for a repository
     method: GET
+    url: https://api.github.com/repos/{owner}/{repo}/releases
     params:
       owner: { type: string, required: true }
       repo: { type: string, required: true }
