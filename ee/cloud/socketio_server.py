@@ -45,10 +45,14 @@ sio = socketio.AsyncServer(
 _sessions: dict[str, dict[str, str]] = {}
 
 
-def _get_room_sids(room: str) -> list[str]:
+async def _get_room_sids(room: str) -> list[str]:
     """Get all SIDs in a Socket.IO room."""
     try:
-        return list(sio.manager.rooms.get("/", {}).get(room, set()))
+        participants = sio.manager.get_participants("/", room)
+        sids = []
+        async for sid, _ in participants:
+            sids.append(sid)
+        return sids
     except Exception:
         return []
 
@@ -161,13 +165,11 @@ async def join_group(sid, data):
         return
 
     room = f"group:{group_id}"
-    sio.enter_room(sid, room)
+    await sio.enter_room(sid, room)
 
-    # Log who's in the room now
-    participants = sio.manager.get_participants("/", room)
-    logger.info("ROOM %s — %s joined (sid=%s). Participants: %s",
-        room, session["email"], sid,
-        [(s, _sessions.get(s, {}).get("email", "?")) for s in _get_room_sids(room)])
+    # Verify join worked
+    user_rooms = sio.rooms(sid)
+    logger.info("JOIN %s — %s (sid=%s) now in rooms: %s", room, session["email"], sid, user_rooms)
 
     await sio.emit("user_joined", {
         "group_id": group_id,
@@ -188,7 +190,7 @@ async def leave_group(sid, data):
         return
 
     room = f"group:{group_id}"
-    sio.leave_room(sid, room)
+    await sio.leave_room(sid, room)
 
     await sio.emit("user_left", {
         "group_id": group_id,
@@ -256,10 +258,7 @@ async def send_message(sid, data):
     msg_data["sender_name"] = session["name"]
 
     room = f"group:{group_id}"
-    room_sids = _get_room_sids(room)
-    room_users = [(s, _sessions.get(s, {}).get("email", "?")) for s in room_sids]
-    logger.info("BROADCAST to %s (skip sender %s). Room has %d members: %s",
-        room, sid, len(room_sids), room_users)
+    logger.info("BROADCAST to %s from %s (skip_sid=%s)", room, session["email"], sid)
 
     await sio.emit("new_message", msg_data, room=room, skip_sid=sid)
 
@@ -318,4 +317,4 @@ def wrap_asgi_app(fastapi_app):
     Socket.IO wraps FastAPI (not the other way around).
     Socket.IO handles /socket.io/ requests, everything else goes to FastAPI.
     """
-    return socketio.ASGIApp(sio, other_app=fastapi_app)
+    return socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
