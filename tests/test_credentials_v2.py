@@ -17,7 +17,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -28,7 +27,6 @@ from pocketpaw.credentials import (
     CredentialMigrationError,
     CredentialStore,
 )
-
 
 # ============================================================================
 # Helpers — create a real v1 (Fernet) encrypted file using the ORIGINAL logic
@@ -217,7 +215,7 @@ class TestMigrationFailure:
 
         # Write a valid v1 file with one identity
         _write_v1_secrets(tmp_path, store, {"key": "secret"})
-        original_data = (tmp_path / "secrets.enc").read_bytes()
+        (tmp_path / "secrets.enc").read_bytes()
 
         # Now create a *different* store whose _derive_key() returns a wrong key
         # by writing a different salt after the v1 file was encrypted
