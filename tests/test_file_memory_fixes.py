@@ -713,6 +713,69 @@ class TestFileVectorSemanticSearch:
 class TestFileGraphAndManagement:
     """Phase 2/3: graph indexing, memory edits, and pruning."""
 
+    async def test_graph_db_not_created_when_graph_feature_disabled(self, tmp_path):
+        store = FileMemoryStore(base_path=tmp_path, vector_enabled=False)
+
+        assert store._graph_enabled is False
+        assert not store._graph_db_path.exists()
+
+    async def test_graph_snapshot_disabled_returns_empty_without_db_creation(self, tmp_path):
+        store = FileMemoryStore(base_path=tmp_path, vector_enabled=False)
+
+        snapshot = await store.get_graph_snapshot(user_id="default", limit=500)
+
+        assert snapshot == {"nodes": [], "edges": []}
+        assert not store._graph_db_path.exists()
+
+    async def test_graph_snapshot_limit_500_avoids_sql_variable_limit(self, tmp_path):
+        """Graph snapshot with limit=500 should not exceed SQLite bind variable cap."""
+        store = FileMemoryStore(
+            base_path=tmp_path,
+            vector_enabled=True,
+            embedding_provider="hash",
+        )
+
+        now = datetime.now(UTC).isoformat()
+        entities = [
+            (f"entity_{i}", "default", f"entity-{i}", f"Entity {i}", 1, now, now)
+            for i in range(500)
+        ]
+        relationships = [
+            (
+                f"rel_{i}",
+                "default",
+                f"entity_{i}",
+                f"entity_{i + 1}",
+                "related_to",
+                1,
+                now,
+                now,
+            )
+            for i in range(499)
+        ]
+
+        with sqlite3.connect(store._graph_db_path) as conn:
+            conn.executemany(
+                """INSERT INTO entities
+                (entity_id, user_scope, entity_key, display_name,
+                mention_count, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                entities,
+            )
+            conn.executemany(
+                """INSERT INTO relationships
+                (relationship_id, user_scope, source_entity_id, target_entity_id,
+                relation_type, weight, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                relationships,
+            )
+            conn.commit()
+
+        snapshot = await store.get_graph_snapshot(user_id="default", limit=500)
+
+        assert len(snapshot["nodes"]) == 500
+        assert len(snapshot["edges"]) <= 500
+
     async def test_graph_snapshot_contains_entities_and_edges(self, tmp_path):
         store = FileMemoryStore(
             base_path=tmp_path,
@@ -897,6 +960,56 @@ class TestFileGraphAndManagement:
         # Verify that the cleanup completes without error and maintains valid entities
         stats = await store.get_memory_stats()
         assert stats["total_memories"] >= 100
+
+    async def test_semantic_search_sqlite_caps_candidate_limit(self, tmp_path):
+        """Candidate fetch size should be bounded to avoid excessive memory usage."""
+        store = FileMemoryStore(
+            base_path=tmp_path,
+            vector_enabled=True,
+            embedding_provider="hash",
+        )
+
+        await store.save(
+            MemoryEntry(
+                id="",
+                type=MemoryType.LONG_TERM,
+                content="Semantic candidate limit regression test",
+                metadata={"header": "Limits"},
+            )
+        )
+
+        observed_limits: list[int] = []
+        real_connect = sqlite3.connect
+
+        class _ConnectionProxy:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def __enter__(self):
+                self._conn.__enter__()
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return self._conn.__exit__(exc_type, exc_val, exc_tb)
+
+            def execute(self, sql, params=()):
+                if "FROM memory_vectors" in sql and "LIMIT ?" in sql and len(params) >= 2:
+                    observed_limits.append(int(params[1]))
+                return self._conn.execute(sql, params)
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        def _connect_proxy(*args, **kwargs):
+            return _ConnectionProxy(real_connect(*args, **kwargs))
+
+        with patch("pocketpaw.memory.file_store.sqlite3.connect", side_effect=_connect_proxy):
+            await store._semantic_search_sqlite("semantic query", user_id="default", limit=1)
+            await store._semantic_search_sqlite("semantic query", user_id="default", limit=10_000)
+
+        assert observed_limits, "Expected semantic search SQL query to run"
+        assert 200 in observed_limits
+        assert 2000 in observed_limits
 
 
 # ===========================================================================
@@ -1090,10 +1203,15 @@ class TestGraphSVGHtmlEscaping:
         # Should return valid SVG even with no data
         assert "<svg" in svg
         assert "</svg>" in svg
+        assert not store._graph_db_path.exists()
 
     async def test_graph_with_networkx_unavailable_returns_fallback(self, tmp_path):
         """If networkx is unavailable, returns fallback SVG."""
-        store = FileMemoryStore(base_path=tmp_path)
+        store = FileMemoryStore(
+            base_path=tmp_path,
+            vector_enabled=True,
+            embedding_provider="hash",
+        )
 
         await store.save(
             MemoryEntry(

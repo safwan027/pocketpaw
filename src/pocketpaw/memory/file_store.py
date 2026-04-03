@@ -496,7 +496,8 @@ class FileMemoryStore:
         self._inv_dirty = True
 
         self._initialize_vector_backend()
-        self._initialize_graph_store()
+        if self._graph_enabled:
+            self._initialize_graph_store()
 
         self._load_index()
 
@@ -1284,8 +1285,12 @@ class FileMemoryStore:
 
     async def _semantic_search_sqlite(self, query: str, user_id: str, limit: int) -> list[dict]:
         """Semantic search using local sqlite vector table."""
+        if limit <= 0:
+            return []
+
         query_embedding = await self._embed_text(query)
-        candidate_limit = max(limit * 50, 500)
+        # Keep candidate fetch bounded to avoid loading excessive embedding JSON blobs.
+        candidate_limit = min(max(limit * 10, 200), 2000)
 
         def _search_sync() -> list[dict]:
             with sqlite3.connect(self._vector_db_path) as conn:
@@ -1888,6 +1893,9 @@ class FileMemoryStore:
     ) -> dict:
         """Return a lightweight graph snapshot for dashboard visualization."""
 
+        if not self._graph_enabled or not self._graph_db_path.exists():
+            return {"nodes": [], "edges": []}
+
         def _snapshot_sync() -> dict:
             with sqlite3.connect(self._graph_db_path) as conn:
                 if query and query.strip():
@@ -1916,27 +1924,28 @@ class FileMemoryStore:
 
                 node_ids = [str(row[0]) for row in nodes]
                 if node_ids:
-                    placeholders = ",".join("?" for _ in node_ids)
+                    conn.execute("CREATE TEMP TABLE selected_node_ids (entity_id TEXT PRIMARY KEY)")
+                    self._insert_valid_ids_batched(conn, "selected_node_ids", node_ids)
                     edge_rows = conn.execute(
-                        f"""
-                           SELECT r.relationship_id,
-                               r.source_entity_id,
-                               r.target_entity_id,
-                               se.display_name,
-                               te.display_name,
-                               r.relation_type,
-                               r.weight,
-                               r.last_seen
-                           FROM relationships r
-                           JOIN entities se ON se.entity_id = r.source_entity_id
-                           JOIN entities te ON te.entity_id = r.target_entity_id
-                           WHERE r.user_scope = ?
-                             AND r.source_entity_id IN ({placeholders})
-                             AND r.target_entity_id IN ({placeholders})
+                        """
+                        SELECT r.relationship_id,
+                            r.source_entity_id,
+                            r.target_entity_id,
+                            se.display_name,
+                            te.display_name,
+                            r.relation_type,
+                            r.weight,
+                            r.last_seen
+                        FROM relationships r
+                        JOIN entities se ON se.entity_id = r.source_entity_id
+                        JOIN entities te ON te.entity_id = r.target_entity_id
+                        JOIN selected_node_ids src_nodes ON src_nodes.entity_id = r.source_entity_id
+                        JOIN selected_node_ids tgt_nodes ON tgt_nodes.entity_id = r.target_entity_id
+                        WHERE r.user_scope = ?
                         ORDER BY r.weight DESC, r.last_seen DESC
                         LIMIT ?
                         """,
-                        (user_id, *node_ids, *node_ids, limit),
+                        (user_id, limit),
                     ).fetchall()
                 else:
                     edge_rows = []
@@ -1978,6 +1987,13 @@ class FileMemoryStore:
         height: int = 400,
     ) -> str:
         """Generate SVG visualization of the memory knowledge graph using networkx."""
+
+        if not self._graph_enabled or not self._graph_db_path.exists():
+            return (
+                f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
+                '<text x="10" y="20" fill="rgba(255,255,255,0.6)">No graph data</text>'
+                "</svg>"
+            )
 
         def _generate_svg_sync() -> str:
             import math
@@ -2030,17 +2046,18 @@ class FileMemoryStore:
                 node_map = {str(row[0]): row[1] for row in nodes}
 
                 if node_ids:
-                    placeholders = ",".join("?" for _ in node_ids)
+                    conn.execute("CREATE TEMP TABLE selected_node_ids (entity_id TEXT PRIMARY KEY)")
+                    self._insert_valid_ids_batched(conn, "selected_node_ids", node_ids)
                     edge_rows = conn.execute(
-                        f"""
+                        """
                         SELECT r.source_entity_id, r.target_entity_id, r.relation_type, r.weight
                         FROM relationships r
+                        JOIN selected_node_ids src_nodes ON src_nodes.entity_id = r.source_entity_id
+                        JOIN selected_node_ids tgt_nodes ON tgt_nodes.entity_id = r.target_entity_id
                         WHERE r.user_scope = ?
-                          AND r.source_entity_id IN ({placeholders})
-                          AND r.target_entity_id IN ({placeholders})
                         ORDER BY r.weight DESC LIMIT ?
                         """,
-                        (user_id, *node_ids, *node_ids, limit),
+                        (user_id, limit),
                     ).fetchall()
                 else:
                     edge_rows = []
@@ -2163,7 +2180,7 @@ class FileMemoryStore:
             return int(row[0]) if row else 0
 
         def _graph_counts() -> tuple[int, int]:
-            if not self._graph_db_path.exists():
+            if not self._graph_enabled or not self._graph_db_path.exists():
                 return (0, 0)
             with sqlite3.connect(self._graph_db_path) as conn:
                 entities = conn.execute("SELECT COUNT(*) FROM entities").fetchone()
