@@ -109,12 +109,6 @@ current_optional_user = fastapi_users.current_user(active=True, optional=True)
 
 
 # ---------------------------------------------------------------------------
-# Router
-# ---------------------------------------------------------------------------
-
-
-
-# ---------------------------------------------------------------------------
 # Schemas for register/read
 # ---------------------------------------------------------------------------
 
@@ -125,81 +119,6 @@ class UserRead(fastapi_users_schemas.BaseUser[PydanticObjectId]):
 
 class UserCreate(fastapi_users_schemas.BaseUserCreate):
     full_name: str = ""
-
-
-# ---------------------------------------------------------------------------
-# Router
-# ---------------------------------------------------------------------------
-
-router = APIRouter(tags=["Auth"])
-
-# Auth routes (login/logout)
-router.include_router(
-    fastapi_users.get_auth_router(cookie_backend),
-    prefix="/auth",
-)
-router.include_router(
-    fastapi_users.get_auth_router(bearer_backend),
-    prefix="/auth/bearer",
-)
-
-# Register route
-router.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
-    prefix="/auth",
-)
-
-
-# ---------------------------------------------------------------------------
-# Profile endpoints
-# ---------------------------------------------------------------------------
-
-class ProfileUpdate(BaseModel):
-    full_name: str | None = None
-    avatar: str | None = None
-
-
-@router.get("/auth/me")
-async def get_me(user: User = Depends(current_active_user)):
-    return {
-        "id": str(user.id),
-        "email": user.email,
-        "name": user.full_name,
-        "image": user.avatar,
-        "emailVerified": user.is_verified,
-        "activeWorkspace": user.active_workspace,
-        "workspaces": [
-            {"workspace": w.workspace, "role": w.role}
-            for w in user.workspaces
-        ],
-    }
-
-
-@router.patch("/auth/me")
-async def update_me(
-    body: ProfileUpdate,
-    user: User = Depends(current_active_user),
-):
-    if body.full_name is not None:
-        user.full_name = body.full_name
-    if body.avatar is not None:
-        user.avatar = body.avatar
-    await user.save()
-    return await get_me(user)
-
-
-@router.post("/auth/set-active-workspace")
-async def set_active_workspace(
-    body: dict,
-    user: User = Depends(current_active_user),
-):
-    ws_id = body.get("workspaceId") or body.get("organizationId")
-    if not ws_id:
-        from fastapi import HTTPException
-        raise HTTPException(400, "workspaceId required")
-    user.active_workspace = ws_id
-    await user.save()
-    return {"ok": True, "activeWorkspace": ws_id}
 
 
 # ---------------------------------------------------------------------------
