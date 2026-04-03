@@ -112,9 +112,7 @@ class TestClaudeAgentSDK:
 
         # Inject a RuntimeError into _is_dangerous_command so the outer
         # except clause fires.
-        with patch.object(
-            sdk, "_is_dangerous_command", side_effect=RuntimeError("boom")
-        ):
+        with patch.object(sdk, "_is_dangerous_command", side_effect=RuntimeError("boom")):
             result = await sdk._block_dangerous_hook(input_data, None, None)
 
         # Must deny, not allow
