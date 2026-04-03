@@ -635,6 +635,8 @@ class MemoryManager:
 
         # Fall back to standard context
         return await self.get_context_for_agent(sender_id=sender_id)
+    
+    
     async def get_by_type(
         self,
         memory_type: MemoryType,
