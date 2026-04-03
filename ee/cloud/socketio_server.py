@@ -45,6 +45,14 @@ sio = socketio.AsyncServer(
 _sessions: dict[str, dict[str, str]] = {}
 
 
+def _get_room_sids(room: str) -> list[str]:
+    """Get all SIDs in a Socket.IO room."""
+    try:
+        return list(sio.manager.rooms.get("/", {}).get(room, set()))
+    except Exception:
+        return []
+
+
 async def _get_user_from_token(token: str):
     """Validate JWT and return User or None."""
     try:
@@ -155,13 +163,17 @@ async def join_group(sid, data):
     room = f"group:{group_id}"
     sio.enter_room(sid, room)
 
+    # Log who's in the room now
+    participants = sio.manager.get_participants("/", room)
+    logger.info("ROOM %s — %s joined (sid=%s). Participants: %s",
+        room, session["email"], sid,
+        [(s, _sessions.get(s, {}).get("email", "?")) for s in _get_room_sids(room)])
+
     await sio.emit("user_joined", {
         "group_id": group_id,
         "user_id": session["user_id"],
         "name": session["name"],
     }, room=room, skip_sid=sid)
-
-    logger.debug("%s joined %s", session["email"], room)
 
 
 @sio.event
@@ -243,7 +255,13 @@ async def send_message(sid, data):
     msg_data["_id"] = str(msg.id)
     msg_data["sender_name"] = session["name"]
 
-    await sio.emit("new_message", msg_data, room=f"group:{group_id}", skip_sid=sid)
+    room = f"group:{group_id}"
+    room_sids = _get_room_sids(room)
+    room_users = [(s, _sessions.get(s, {}).get("email", "?")) for s in room_sids]
+    logger.info("BROADCAST to %s (skip sender %s). Room has %d members: %s",
+        room, sid, len(room_sids), room_users)
+
+    await sio.emit("new_message", msg_data, room=room, skip_sid=sid)
 
     # Confirm to sender with the persisted message (so they get the real _id)
     await sio.emit("message_sent", msg_data, to=sid)
@@ -293,4 +311,11 @@ async def stop_typing(sid, data):
 # ---------------------------------------------------------------------------
 
 # Create the ASGI app that wraps the Socket.IO server
-socketio_app = socketio.ASGIApp(sio, socketio_path="socket.io")
+def wrap_asgi_app(fastapi_app):
+    """Wrap a FastAPI app with Socket.IO ASGI middleware.
+
+    This is the correct pattern per python-socketio docs:
+    Socket.IO wraps FastAPI (not the other way around).
+    Socket.IO handles /socket.io/ requests, everything else goes to FastAPI.
+    """
+    return socketio.ASGIApp(sio, other_app=fastapi_app)

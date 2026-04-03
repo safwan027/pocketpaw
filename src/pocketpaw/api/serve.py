@@ -70,12 +70,12 @@ def create_api_app():
 
     # --- Mount Socket.IO for enterprise real-time group chat ----------------
     try:
-        from ee.cloud.socketio_server import socketio_app
-        app.mount("/", socketio_app)
+        from ee.cloud.socketio_server import wrap_asgi_app
+        app = wrap_asgi_app(app)
     except ImportError:
         pass
     except Exception:
-        logger.warning("Socket.IO mount failed", exc_info=True)
+        logger.warning("Socket.IO wrapper failed", exc_info=True)
 
     # --- WebSocket handler helper ----------------------------------------
     async def _handle_ws(
