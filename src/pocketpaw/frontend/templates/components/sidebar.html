@@ -151,6 +151,7 @@
 
                 <!-- Three-dot actions menu trigger — absolutely positioned so it is NOT nested inside the session button -->
                 <button
+                    x-ref="menuTrigger"
                     class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
                     :class="sessionMenuOpen ? '!opacity-100 bg-white/10' : ''"
                     @click.stop="sessionMenuOpen = !sessionMenuOpen"
@@ -159,7 +160,7 @@
                   <i data-lucide="more-vertical" class="w-3.5 h-3.5 text-white/50"></i>
                 </button>
 
-                <!-- Actions dropdown -->
+                <!-- Actions dropdown — fixed positioning to escape scroll container clipping -->
                 <div
                     x-show="sessionMenuOpen"
                     x-transition:enter="transition ease-out duration-100"
@@ -168,17 +169,15 @@
                     x-transition:leave="transition ease-in duration-75"
                     x-transition:leave-start="opacity-100 scale-100"
                     x-transition:leave-end="opacity-0 scale-95"
-                    class="absolute right-0 z-50 mt-0.5 w-44 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-xl backdrop-blur-xl py-1"
-                    style="top: 100%;"
+                    class="fixed z-50 w-44 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-xl backdrop-blur-xl py-1"
+                    x-init="$watch('sessionMenuOpen', open => { if (open) { $nextTick(() => { const r = $refs.menuTrigger.getBoundingClientRect(); $el.style.top = (r.bottom + 2) + 'px'; $el.style.left = (r.right - $el.offsetWidth) + 'px'; }); } })"
                     @click.stop
                 >
                   <!-- Export submenu -->
-                  <div x-data="{ exportSubOpen: false }" class="relative">
+                  <div x-data="{ exportSubOpen: false }" class="relative" @mouseenter="exportSubOpen = true" @mouseleave="exportSubOpen = false">
                     <button
                         class="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
                         @click="exportSubOpen = !exportSubOpen"
-                        @mouseenter="exportSubOpen = true"
-                        @mouseleave="exportSubOpen = false"
                     >
                       <i data-lucide="download" class="w-3.5 h-3.5 shrink-0"></i>
                       <span>Export</span>
@@ -187,8 +186,6 @@
                     <!-- Export sub-dropdown -->
                     <div
                         x-show="exportSubOpen"
-                        @mouseenter="exportSubOpen = true"
-                        @mouseleave="exportSubOpen = false"
                         class="absolute left-full top-0 w-32 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-xl backdrop-blur-xl py-1 ml-1"
                     >
                       <button
@@ -511,6 +508,7 @@
     <div
         class="fixed inset-0 z-[200] flex items-center justify-center p-4"
         @click.self="deletingSessionId = null"
+        @keydown.window.escape="deletingSessionId = null"
     >
       <div class="w-72 rounded-xl bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-2xl backdrop-blur-xl p-5">
         <div class="flex items-center gap-3 mb-3">
