@@ -47,7 +47,27 @@ class AgentService:
                 f"Slug '{body.slug}' is already in use in this workspace",
             )
 
-        config = AgentConfig(**(body.config or {}))
+        config_data: dict = {
+            "backend": body.backend,
+            "model": body.model,
+            "system_prompt": body.system_prompt,
+            "soul_enabled": body.soul_enabled,
+            "soul_persona": body.persona,
+            "soul_archetype": body.soul_archetype or f"The {body.name}",
+        }
+        if body.temperature is not None:
+            config_data["temperature"] = body.temperature
+        if body.max_tokens is not None:
+            config_data["max_tokens"] = body.max_tokens
+        if body.tools is not None:
+            config_data["tools"] = body.tools
+        if body.trust_level is not None:
+            config_data["trust_level"] = body.trust_level
+        if body.soul_values is not None:
+            config_data["soul_values"] = body.soul_values
+        if body.soul_ocean is not None:
+            config_data["soul_ocean"] = body.soul_ocean
+        config = AgentConfig(**config_data)
 
         agent = Agent(
             workspace=workspace_id,
@@ -111,6 +131,31 @@ class AgentService:
             agent.visibility = body.visibility
         if body.config is not None:
             agent.config = AgentConfig(**body.config)
+        else:
+            # Apply individual config/soul field overrides
+            current = agent.config.model_dump()
+            changed = False
+            for field, attr in [
+                ("backend", body.backend),
+                ("model", body.model),
+                ("system_prompt", body.system_prompt),
+                ("temperature", body.temperature),
+                ("max_tokens", body.max_tokens),
+                ("tools", body.tools),
+                ("trust_level", body.trust_level),
+                ("soul_enabled", body.soul_enabled),
+                ("soul_archetype", body.soul_archetype),
+                ("soul_values", body.soul_values),
+                ("soul_ocean", body.soul_ocean),
+            ]:
+                if attr is not None:
+                    current[field] = attr
+                    changed = True
+            if body.persona is not None:
+                current["soul_persona"] = body.persona
+                changed = True
+            if changed:
+                agent.config = AgentConfig(**current)
 
         await agent.save()
         return _agent_response(agent)

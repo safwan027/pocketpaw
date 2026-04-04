@@ -15,19 +15,20 @@ from ee.cloud.agents.schemas import (
 
 def test_create_agent_required_fields():
     req = CreateAgentRequest(name="My Agent", slug="my-agent")
-    assert req.name == "My Agent" and req.config is None
+    assert req.name == "My Agent" and req.backend == "claude_agent_sdk"
 
 
-def test_create_agent_with_config():
-    req = CreateAgentRequest(name="A", slug="a", config={"backend": "claude_agent_sdk"})
-    assert req.config["backend"] == "claude_agent_sdk"
+def test_create_agent_with_backend():
+    req = CreateAgentRequest(name="A", slug="a", backend="claude_agent_sdk")
+    assert req.backend == "claude_agent_sdk"
 
 
 def test_create_agent_defaults():
     req = CreateAgentRequest(name="Test", slug="test")
     assert req.avatar == ""
     assert req.visibility == "private"
-    assert req.config is None
+    assert req.backend == "claude_agent_sdk"
+    assert req.model == ""
 
 
 def test_create_agent_all_fields():
@@ -36,13 +37,13 @@ def test_create_agent_all_fields():
         slug="full-agent",
         avatar="https://example.com/avatar.png",
         visibility="workspace",
-        config={"model": "claude-sonnet-4-5-20250514"},
+        model="claude-sonnet-4-5-20250514",
     )
     assert req.name == "Full Agent"
     assert req.slug == "full-agent"
     assert req.avatar == "https://example.com/avatar.png"
     assert req.visibility == "workspace"
-    assert req.config["model"] == "claude-sonnet-4-5-20250514"
+    assert req.model == "claude-sonnet-4-5-20250514"
 
 
 def test_create_agent_public_visibility():

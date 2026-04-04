@@ -10,13 +10,24 @@ from pydantic import BaseModel, Field
 
 class AgentConfig(BaseModel):
     backend: str = "claude_agent_sdk"
-    model: str = "claude-sonnet-4-5-20250514"
+    model: str = ""  # empty = use backend default
     system_prompt: str = ""
     tools: list[str] = Field(default_factory=list)
     trust_level: int = Field(default=3, ge=1, le=5)
-    soul_path: str = ""
     temperature: float = Field(default=0.7, ge=0, le=2)
     max_tokens: int = Field(default=4096, ge=1)
+    # Soul integration
+    soul_enabled: bool = True
+    soul_persona: str = ""
+    soul_archetype: str = ""
+    soul_values: list[str] = Field(default_factory=lambda: ["helpfulness", "accuracy"])
+    soul_ocean: dict[str, float] = Field(default_factory=lambda: {
+        "openness": 0.7,
+        "conscientiousness": 0.85,
+        "extraversion": 0.5,
+        "agreeableness": 0.8,
+        "neuroticism": 0.2,
+    })
 
 
 class Agent(TimestampedDocument):

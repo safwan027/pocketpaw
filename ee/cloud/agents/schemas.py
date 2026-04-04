@@ -17,7 +17,21 @@ class CreateAgentRequest(BaseModel):
     slug: str = Field(min_length=1, max_length=50)
     avatar: str = ""
     visibility: str = Field(default="private", pattern="^(private|workspace|public)$")
-    config: dict | None = None  # AgentConfig fields
+    # Agent config
+    backend: str = "claude_agent_sdk"
+    model: str = ""
+    persona: str = ""
+    # Optional overrides
+    temperature: float | None = None
+    max_tokens: int | None = None
+    tools: list[str] | None = None
+    trust_level: int | None = None
+    system_prompt: str = ""
+    # Soul customization
+    soul_enabled: bool = True
+    soul_archetype: str = ""
+    soul_values: list[str] | None = None
+    soul_ocean: dict[str, float] | None = None
 
 
 class UpdateAgentRequest(BaseModel):
@@ -25,6 +39,20 @@ class UpdateAgentRequest(BaseModel):
     avatar: str | None = None
     visibility: str | None = Field(default=None, pattern="^(private|workspace|public)$")
     config: dict | None = None
+    # Agent config overrides
+    backend: str | None = None
+    model: str | None = None
+    persona: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    tools: list[str] | None = None
+    trust_level: int | None = None
+    system_prompt: str | None = None
+    # Soul customization
+    soul_enabled: bool | None = None
+    soul_archetype: str | None = None
+    soul_values: list[str] | None = None
+    soul_ocean: dict[str, float] | None = None
 
 
 class DiscoverRequest(BaseModel):
