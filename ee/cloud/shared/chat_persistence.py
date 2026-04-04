@@ -95,9 +95,11 @@ async def _on_outbound_message(message) -> None:
         # Non-streaming content accumulation
         if message.content and not message.is_stream_chunk:
             _stream_buffers[chat_id] = _stream_buffers.get(chat_id, "") + (message.content or "")
+    except Exception:
+        logger.debug("Failed to persist outbound message", exc_info=True)
 
 
-async def _ensure_cloud_session(chat_id: str, session_key: str) -> dict | None:
+async def _ensure_cloud_session(chat_id: str) -> dict | None:
     """Find or create a cloud session + group for a runtime WebSocket chat."""
     if chat_id in _active_sessions:
         return _active_sessions[chat_id]
