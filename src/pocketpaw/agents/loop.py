@@ -251,6 +251,10 @@ class AgentLoop:
                 if self._soul_manager.bootstrap_provider:
                     self.context_builder.bootstrap = self._soul_manager.bootstrap_provider
                 self._soul_manager.start_auto_save()
+
+                # Register as global singleton so API endpoints can access it
+                import pocketpaw.soul.manager as _sm
+                _sm._manager = self._soul_manager
             except Exception:
                 logger.exception("Soul initialization failed, continuing without soul")
                 self._soul_manager = None
