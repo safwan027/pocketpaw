@@ -118,12 +118,17 @@ async def discover_agents(
 async def ingest_text(agent_id: str, body: dict):
     """Ingest plain text into agent's knowledge base."""
     from ee.cloud.agents.knowledge import KnowledgeService
+    import logging
 
     text = body.get("text", "")
     source = body.get("source", "manual")
     if not text:
         return {"error": "No text provided"}
-    return await KnowledgeService.ingest_text(agent_id, text, source)
+    try:
+        return await KnowledgeService.ingest_text(agent_id, text, source)
+    except Exception as exc:
+        logging.getLogger(__name__).error("Knowledge ingest failed: %s", exc, exc_info=True)
+        return {"error": str(exc)}
 
 
 @router.post("/{agent_id}/knowledge/url")

@@ -62,15 +62,38 @@ class KnowledgeEngine:
         return results
 
     async def _process_raw(self, raw: RawDoc) -> WikiArticle:
-        """Store raw doc → compile with LLM → index → save article."""
-        from pocketpaw.knowledge.compiler import compile_article
+        """Store raw doc → compile with LLM → index → save article.
+
+        If LLM compilation fails, creates a basic article from raw text directly.
+        Raw doc is always saved regardless of compilation success.
+        """
+        import re
         from pocketpaw.knowledge.indexer import update_index
 
-        # Store raw doc
+        # Always save raw doc first
         self.store.save_raw(raw)
+        logger.info("Saved raw doc: %s (%s, %d words)", raw.id, raw.source, len(raw.raw_text.split()))
 
-        # Compile to wiki article
-        article = await compile_article(raw)
+        # Try LLM compilation, fall back to basic article
+        try:
+            from pocketpaw.knowledge.compiler import compile_article
+            article = await compile_article(raw)
+        except Exception:
+            logger.warning("LLM compilation failed for %s, creating basic article", raw.id, exc_info=True)
+            # Create basic article from raw text without LLM
+            slug = re.sub(r"[^a-z0-9\s-]", "", (raw.filename or raw.source or raw.id).lower())
+            slug = re.sub(r"[\s-]+", "-", slug)[:80].strip("-") or raw.id[:16]
+            article = WikiArticle(
+                id=slug,
+                title=raw.filename or raw.source or "Untitled",
+                summary=raw.raw_text[:200].strip(),
+                content=raw.raw_text,
+                concepts=[],
+                categories=[],
+                source_docs=[raw.id],
+                word_count=len(raw.raw_text.split()),
+                compiled_with="none (fallback)",
+            )
 
         # Ensure unique ID
         existing = self.store.load_article(article.id)
