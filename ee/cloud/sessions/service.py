@@ -159,20 +159,56 @@ class SessionService:
 
     @staticmethod
     async def get_history(session_id: str, user_id: str) -> dict:
-        """Get session history directly from the memory manager (in-process)."""
-        session = await SessionService._get_session(session_id, user_id)
-        try:
-            from pocketpaw.memory.manager import SessionManager
+        """Get session chat history from cloud Messages collection.
 
-            manager = SessionManager()
-            return await manager.get_session_history(session.sessionId)
+        Cloud sessions store messages in MongoDB (group chat messages),
+        not in the runtime file-based memory store.
+        """
+        session = await SessionService._get_session(session_id, user_id)
+
+        # Session can be linked to a group — fetch messages from that group
+        group_id = session.group
+        if not group_id and session.pocket:
+            # If session is linked to a pocket but not a group,
+            # there may not be chat history yet
+            return {"messages": []}
+
+        if not group_id:
+            return {"messages": []}
+
+        try:
+            from ee.cloud.models.message import Message
+
+            messages = (
+                await Message.find(
+                    Message.group == group_id,
+                    Message.deleted == False,  # noqa: E711
+                )
+                .sort("createdAt")
+                .limit(100)
+                .to_list()
+            )
+
+            return {
+                "messages": [
+                    {
+                        "_id": str(m.id),
+                        "role": "assistant" if m.sender_type == "agent" else "user",
+                        "content": m.content,
+                        "sender": m.sender,
+                        "senderType": m.sender_type,
+                        "createdAt": m.createdAt.isoformat() if m.createdAt else None,
+                    }
+                    for m in messages
+                ]
+            }
         except Exception:
             logger.warning(
                 "Failed to fetch history for session %s",
                 session.sessionId,
                 exc_info=True,
             )
-            return {"messages": [], "error": "Session history unavailable"}
+            return {"messages": []}
 
     # -----------------------------------------------------------------
     # Touch (activity tracking)
