@@ -1,6 +1,7 @@
 """Configuration management for PocketPaw.
 
 Changes:
+  - 2026-04-04: Added soul_cognitive_model setting for cheaper cognitive processing.
   - 2026-03-16: Use Literal types for whatsapp_mode, tts_provider, stt_provider (#638).
   - 2026-02-17: Added health_check_on_startup field for Health Engine.
   - 2026-02-14: Add migration warning for old ~/.pocketclaw/ config dir and POCKETCLAW_ env vars.
@@ -848,6 +849,15 @@ class Settings(BaseSettings):
             "mood_inertia: resistance to mood change (0-1). "
             "tired_threshold: energy level that triggers fatigue. "
             "auto_regen: passive energy recovery rate."
+        ),
+    )
+
+    soul_cognitive_model: str = Field(
+        default="",
+        description=(
+            "Model to use for soul cognitive processing (sentiment, significance, "
+            "fact/entity extraction). Empty = use main agent backend. Set to a cheaper "
+            "model like 'claude-haiku-4-5-20251001' to reduce cost. Requires anthropic SDK."
         ),
     )
 
