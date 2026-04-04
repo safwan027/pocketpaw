@@ -67,6 +67,7 @@ def _message_response(msg: Message) -> dict:
         "group": msg.group,
         "sender": msg.sender,
         "senderType": msg.sender_type,
+        "agent": msg.agent,
         "content": msg.content,
         "mentions": [m.model_dump() for m in msg.mentions],
         "replyTo": msg.reply_to,
