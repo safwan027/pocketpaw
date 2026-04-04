@@ -1,0 +1,163 @@
+"""Agents domain — business logic service."""
+
+from __future__ import annotations
+
+from beanie import PydanticObjectId
+
+from ee.cloud.agents.schemas import (
+    AgentResponse,
+    CreateAgentRequest,
+    DiscoverRequest,
+    UpdateAgentRequest,
+)
+from ee.cloud.models.agent import Agent, AgentConfig
+from ee.cloud.shared.errors import ConflictError, Forbidden, NotFound
+
+
+def _agent_response(agent: Agent) -> AgentResponse:
+    """Build an AgentResponse from an Agent document."""
+    return AgentResponse(
+        id=str(agent.id),
+        workspace=agent.workspace,
+        name=agent.name,
+        slug=agent.slug,
+        avatar=agent.avatar,
+        visibility=agent.visibility,
+        config=agent.config.model_dump(),
+        owner=agent.owner,
+        created_at=agent.createdAt,
+        updated_at=agent.updatedAt,
+    )
+
+
+class AgentService:
+    """Stateless service encapsulating agent business logic."""
+
+    @staticmethod
+    async def create(
+        workspace_id: str, user_id: str, body: CreateAgentRequest
+    ) -> AgentResponse:
+        """Create an agent with slug uniqueness within the workspace."""
+        existing = await Agent.find_one(
+            Agent.workspace == workspace_id,
+            Agent.slug == body.slug,
+        )
+        if existing:
+            raise ConflictError(
+                "agent.slug_taken",
+                f"Slug '{body.slug}' is already in use in this workspace",
+            )
+
+        config = AgentConfig(**(body.config or {}))
+
+        agent = Agent(
+            workspace=workspace_id,
+            name=body.name,
+            slug=body.slug,
+            avatar=body.avatar,
+            visibility=body.visibility,
+            config=config,
+            owner=user_id,
+        )
+        await agent.insert()
+        return _agent_response(agent)
+
+    @staticmethod
+    async def list_agents(
+        workspace_id: str, query: str | None = None
+    ) -> list[AgentResponse]:
+        """List agents in a workspace with optional name search."""
+        filters: dict = {"workspace": workspace_id}
+        if query:
+            filters["name"] = {"$regex": query, "$options": "i"}
+
+        agents = await Agent.find(filters).to_list()
+        return [_agent_response(a) for a in agents]
+
+    @staticmethod
+    async def get(agent_id: str) -> AgentResponse:
+        """Get a single agent by ID. Raises NotFound if missing."""
+        agent = await Agent.get(PydanticObjectId(agent_id))
+        if not agent:
+            raise NotFound("agent", agent_id)
+        return _agent_response(agent)
+
+    @staticmethod
+    async def get_by_slug(workspace_id: str, slug: str) -> AgentResponse:
+        """Find an agent by slug within a workspace."""
+        agent = await Agent.find_one(
+            Agent.workspace == workspace_id,
+            Agent.slug == slug,
+        )
+        if not agent:
+            raise NotFound("agent", slug)
+        return _agent_response(agent)
+
+    @staticmethod
+    async def update(
+        agent_id: str, user_id: str, body: UpdateAgentRequest
+    ) -> AgentResponse:
+        """Update agent fields. Owner only."""
+        agent = await Agent.get(PydanticObjectId(agent_id))
+        if not agent:
+            raise NotFound("agent", agent_id)
+        if agent.owner != user_id:
+            raise Forbidden("agent.not_owner", "Only the agent owner can update it")
+
+        if body.name is not None:
+            agent.name = body.name
+        if body.avatar is not None:
+            agent.avatar = body.avatar
+        if body.visibility is not None:
+            agent.visibility = body.visibility
+        if body.config is not None:
+            agent.config = AgentConfig(**body.config)
+
+        await agent.save()
+        return _agent_response(agent)
+
+    @staticmethod
+    async def delete(agent_id: str, user_id: str) -> None:
+        """Hard-delete an agent. Owner only."""
+        agent = await Agent.get(PydanticObjectId(agent_id))
+        if not agent:
+            raise NotFound("agent", agent_id)
+        if agent.owner != user_id:
+            raise Forbidden("agent.not_owner", "Only the agent owner can delete it")
+
+        await agent.delete()
+
+    @staticmethod
+    async def discover(
+        workspace_id: str, user_id: str, body: DiscoverRequest
+    ) -> list[AgentResponse]:
+        """Paginated agent discovery with visibility filtering.
+
+        Visibility rules:
+        - private: only the requesting user's own agents
+        - workspace: all agents in the workspace
+        - public: all public agents (across workspaces)
+        """
+        filters: dict = {}
+
+        if body.visibility == "private":
+            filters["workspace"] = workspace_id
+            filters["owner"] = user_id
+        elif body.visibility == "workspace":
+            filters["workspace"] = workspace_id
+        elif body.visibility == "public":
+            filters["visibility"] = "public"
+        else:
+            # Default: user's own agents + workspace-visible + public
+            filters["$or"] = [
+                {"workspace": workspace_id, "owner": user_id},
+                {"workspace": workspace_id, "visibility": "workspace"},
+                {"visibility": "public"},
+            ]
+
+        if body.query:
+            filters["name"] = {"$regex": body.query, "$options": "i"}
+
+        skip = (body.page - 1) * body.page_size
+        agents = await Agent.find(filters).skip(skip).limit(body.page_size).to_list()
+        return [_agent_response(a) for a in agents]

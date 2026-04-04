@@ -27,7 +27,7 @@ class Agent(TimestampedDocument):
     slug: str
     avatar: str = ""
     config: AgentConfig = Field(default_factory=AgentConfig)
-    visibility: str = Field(default="private", pattern="^(private|workspace)$")
+    visibility: str = Field(default="private", pattern="^(private|workspace|public)$")
     owner: str  # User ID
 
     class Settings:
