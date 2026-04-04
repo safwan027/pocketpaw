@@ -370,6 +370,14 @@ class Settings(BaseSettings):
     vectordb_path: str = Field(
         default="~/.pocketpaw/chroma_db", description="Storage path for the vector database"
     )
+    vectordb_embedding_provider: str = Field(
+        default="default",
+        description="Embedding provider: 'default' (sentence-transformers), 'openai', 'huggingface'",
+    )
+    vectordb_embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="Embedding model name. For HuggingFace: any model ID (e.g. 'BAAI/bge-small-en-v1.5'). For OpenAI: 'text-embedding-3-small'",
+    )
     memory_use_inference: bool = Field(
         default=True, description="Use LLM to extract facts from memories (only for mem0 backend)"
     )

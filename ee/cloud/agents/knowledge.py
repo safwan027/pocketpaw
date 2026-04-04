@@ -43,9 +43,16 @@ class KnowledgeService:
 
     @staticmethod
     def _get_store(agent_id: str):
-        """Get or create a ChromaDB collection for an agent."""
+        """Get or create a ChromaDB collection for an agent, using configured embeddings."""
         from pocketpaw.vectordb.chroma_adapter import ChromaAdapter
-        return ChromaAdapter(collection_name=f"agent_{agent_id}")
+        from pocketpaw.config import Settings
+
+        settings = Settings.load()
+        return ChromaAdapter(
+            collection_name=f"agent_{agent_id}",
+            embedding_provider=getattr(settings, "vectordb_embedding_provider", "default"),
+            embedding_model=getattr(settings, "vectordb_embedding_model", "all-MiniLM-L6-v2"),
+        )
 
     @staticmethod
     async def ingest_text(agent_id: str, text: str, source: str = "manual") -> dict:
