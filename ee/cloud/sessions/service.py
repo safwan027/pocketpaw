@@ -77,7 +77,14 @@ class SessionService:
     async def list_sessions(
         workspace_id: str, user_id: str
     ) -> list[dict]:
-        """List sessions for user in workspace, exclude deleted, sort by lastActivity desc."""
+        """List sessions for user in workspace, exclude deleted, sort by lastActivity desc.
+
+        Also syncs any runtime sessions that exist in file memory but
+        not yet in MongoDB (e.g. sessions created before cloud persistence).
+        """
+        # Sync runtime sessions to cloud
+        await SessionService._sync_runtime_sessions(workspace_id, user_id)
+
         sessions = (
             await Session.find(
                 Session.workspace == workspace_id,
@@ -205,11 +212,20 @@ class SessionService:
             from pocketpaw.memory.manager import MemoryManager
 
             manager = MemoryManager()
-            # Runtime uses session keys like "websocket:{chat_id}" or the sessionId directly
-            for key in [session.sessionId, f"websocket:{session.sessionId}"]:
-                entries = await manager.get_session_history(key)
-                if entries:
-                    return {"messages": entries}
+            # Try multiple key formats: the sessionId, with colon, with underscore
+            sid = session.sessionId
+            keys_to_try = [
+                sid,                              # as-is
+                sid.replace("_", ":", 1),          # websocket_abc → websocket:abc
+                f"websocket:{sid}",               # prefix with websocket:
+            ]
+            for key in keys_to_try:
+                try:
+                    entries = await manager.get_session_history(key)
+                    if entries:
+                        return {"messages": entries}
+                except Exception:
+                    continue
         except Exception:
             logger.debug("Runtime memory lookup failed for session %s", session.sessionId)
 
@@ -231,6 +247,62 @@ class SessionService:
     # -----------------------------------------------------------------
     # Internal helpers
     # -----------------------------------------------------------------
+
+    @staticmethod
+    @staticmethod
+    async def _sync_runtime_sessions(workspace_id: str, user_id: str) -> None:
+        """Import runtime file-memory sessions that don't exist in MongoDB yet.
+
+        Reads ~/.pocketpaw/memory/sessions/_index.json for the runtime's
+        session index and creates cloud Session documents for any missing.
+        """
+        try:
+            import json
+            from pocketpaw.config import get_config_dir
+
+            index_path = get_config_dir() / "memory" / "sessions" / "_index.json"
+            if not index_path.exists():
+                return
+
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+
+            # Get existing cloud session IDs
+            existing = await Session.find(
+                Session.workspace == workspace_id,
+                Session.owner == user_id,
+            ).to_list()
+            existing_ids = {s.sessionId for s in existing}
+
+            for session_key, meta in index.items():
+                if session_key.startswith("_"):
+                    continue
+                # Normalize key: "websocket:abc" → "websocket_abc"
+                session_id = session_key.replace(":", "_")
+                if session_id in existing_ids or session_key in existing_ids:
+                    continue
+
+                title = meta.get("user_title") or meta.get("title") or session_key
+                last_activity = meta.get("last_activity")
+
+                session = Session(
+                    sessionId=session_id,
+                    workspace=workspace_id,
+                    owner=user_id,
+                    title=title[:100],
+                    messageCount=meta.get("message_count", 0),
+                )
+                # Set lastActivity from index
+                if last_activity:
+                    try:
+                        session.lastActivity = datetime.fromisoformat(last_activity)
+                    except Exception:
+                        pass
+
+                await session.insert()
+                logger.debug("Synced runtime session: %s → %s", session_id, title[:40])
+        except Exception:
+            # Non-fatal
+            logger.debug("Runtime session sync failed", exc_info=True)
 
     @staticmethod
     async def _get_session(session_id: str, user_id: str) -> Session:
