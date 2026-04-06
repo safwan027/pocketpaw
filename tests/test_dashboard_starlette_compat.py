@@ -1,6 +1,5 @@
 """Regression test: dashboard index must return 200 on Starlette 1.0.0."""
 
-
 import importlib.metadata
 
 from fastapi.testclient import TestClient
