@@ -523,9 +523,12 @@ class TestGraphExtraction:
 
         # Should NOT create arbitrary fallback edges
         assert not any(rel == "related_to" for src, rel, tgt in relationships)
+
+
 async def test_get_by_type_delegates_to_store(tmp_path):
     """Test that get_by_type public method delegates to the underlying store."""
     from unittest.mock import AsyncMock
+
     from pocketpaw.memory.manager import MemoryManager
     from pocketpaw.memory.protocol import MemoryType
 
@@ -542,6 +545,7 @@ async def test_get_by_type_delegates_to_store(tmp_path):
 async def test_get_by_type_forwards_user_id(tmp_path):
     """Test that get_by_type forwards user_id to the store for scoped retrieval."""
     from unittest.mock import AsyncMock
+
     from pocketpaw.memory.manager import MemoryManager
     from pocketpaw.memory.protocol import MemoryType
 
@@ -553,4 +557,3 @@ async def test_get_by_type_forwards_user_id(tmp_path):
     manager._store.get_by_type.assert_awaited_once_with(
         MemoryType.LONG_TERM, limit=5, user_id="user123"
     )
-    

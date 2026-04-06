@@ -635,8 +635,7 @@ class MemoryManager:
 
         # Fall back to standard context
         return await self.get_context_for_agent(sender_id=sender_id)
-    
-    
+
     async def get_by_type(
         self,
         memory_type: MemoryType,
@@ -657,8 +656,7 @@ class MemoryManager:
             List of MemoryEntry objects of the requested type.
         """
         return await self._store.get_by_type(memory_type, limit=limit, user_id=user_id)
-    
-    
+
     async def clear_session(self, session_key: str) -> int:
         """Clear session history."""
         return await self._store.clear_session(session_key)
