@@ -43,6 +43,12 @@ def auth_test_client():
     from starlette.testclient import TestClient
 
     from pocketpaw.dashboard import app
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    # Clear per-IP rate-limit buckets so hits accumulated by earlier test files
+    # (e.g. test_api_v1_auth.py makes 10+ calls to /api/auth/login) don't
+    # exhaust the 5-request auth burst and cause 429 instead of the expected 401.
+    auth_limiter._buckets.clear()
 
     return TestClient(app, raise_server_exceptions=False)
 
