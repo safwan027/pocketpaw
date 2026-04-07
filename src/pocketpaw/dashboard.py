@@ -29,6 +29,7 @@ import base64
 import io
 import json
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 try:
@@ -103,6 +104,18 @@ from pocketpaw.security.redact import safe_install_error
 from pocketpaw.skills import get_skill_loader
 from pocketpaw.tunnel import get_tunnel_manager
 
+
+@asynccontextmanager
+async def lifespan(app):
+    # startup
+    await _startup_event(_start_channel_adapter_fn=_start_channel_adapter)
+
+    yield
+
+    # shutdown
+    await _shutdown_event(_stop_channel_adapter_fn=_stop_channel_adapter)
+
+
 logger = logging.getLogger(__name__)
 
 # Module-level uvicorn server reference (set by run_dashboard, read by restart_server)
@@ -119,6 +132,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Create FastAPI app
 app = FastAPI(
+    lifespan=lifespan,
     title="PocketPaw API",
     description="Self-hosted AI agent — REST API for external clients and the web dashboard.",
     version="1.0.0",
@@ -220,12 +234,12 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
+# @app.on_event("startup")
 async def startup_event():
     await _startup_event(_start_channel_adapter_fn=_start_channel_adapter)
 
 
-@app.on_event("shutdown")
+# @app.on_event("shutdown")
 async def shutdown_event():
     await _shutdown_event(_stop_channel_adapter_fn=_stop_channel_adapter)
 

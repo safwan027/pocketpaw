@@ -10,6 +10,19 @@ the dashboard mode.
 """
 
 import logging
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app):
+    from pocketpaw.dashboard_lifecycle import shutdown_event, startup_event
+
+    # startup
+    await startup_event()
+
+    # shutdown
+    await shutdown_event()
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +36,7 @@ def create_api_app():
     from pocketpaw.config import Settings, get_access_token
 
     app = FastAPI(
+        lifespan=lifespan,
         title="PocketPaw API",
         description="Self-hosted AI agent — REST + WebSocket server for external clients.",
         version="1.0.0",
@@ -114,18 +128,18 @@ def create_api_app():
         """WebSocket v1 short path — for clients using /v1/ws."""
         await _handle_ws(websocket, token, resume_session)
 
-    # --- Lifecycle events -----------------------------------------------
-    @app.on_event("startup")
-    async def startup():
-        from pocketpaw.dashboard_lifecycle import startup_event
+    # # --- Lifecycle events -----------------------------------------------
+    # @app.on_event("startup")
+    # async def startup():
+    #     from pocketpaw.dashboard_lifecycle import startup_event
 
-        await startup_event()
+    #     await startup_event()
 
-    @app.on_event("shutdown")
-    async def shutdown():
-        from pocketpaw.dashboard_lifecycle import shutdown_event
+    # @app.on_event("shutdown")
+    # async def shutdown():
+    #     from pocketpaw.dashboard_lifecycle import shutdown_event
 
-        await shutdown_event()
+    #     await shutdown_event()
 
     return app
 
