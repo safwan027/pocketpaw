@@ -387,6 +387,34 @@ def _resolve_subargs(args) -> None:
         args.limit = defaults.get(cmd, 20)
 
 
+
+def _serve(fn, *args, port: int = 8888, max_attempts: int = 10, host: str = '127.0.0.1', **kwargs) -> None:
+    import errno as _errno
+    import socket as _socket
+    current_port = port
+    for attempt in range(max_attempts):
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, current_port))
+            except OSError:
+                next_port = current_port + 1
+                print(f"\n  [WARN] Port {current_port} busy — trying {next_port}\n")
+                current_port = next_port
+                continue
+        try:
+            fn(*args, port=current_port, host=host, **kwargs)
+            return
+        except OSError as e:
+            if e.errno in (_errno.EADDRINUSE, 10048):
+                next_port = current_port + 1
+                print(f"\n  [WARN] Port {current_port} taken at bind — trying {next_port}\n")
+                current_port = next_port
+            else:
+                raise
+    raise RuntimeError(
+        f'No free port found after {max_attempts} attempts (tried {port}-{current_port - 1}).'
+    )
+
 def main() -> None:
     """Main entry point."""
     parser = _build_parser()
@@ -497,7 +525,7 @@ def main() -> None:
         if args.command == "serve":
             from pocketpaw.api.serve import run_api_server
 
-            run_api_server(host=host, port=args.port, dev=args.dev)
+            _serve(run_api_server, host=host, port=args.port, dev=args.dev)
         elif args.command == "status":
             from pocketpaw.cli.status import run_status
 
@@ -529,7 +557,7 @@ def main() -> None:
             _run_async(run_multi_channel_mode(settings, args))
         else:
             # Default: web dashboard (also handles --web flag)
-            run_dashboard_mode(settings, host, args.port, dev=args.dev)
+            _serve(run_dashboard_mode, settings, host=host, port=args.port, dev=args.dev)
     except KeyboardInterrupt:
         logger.info("PocketPaw stopped.")
     finally:
