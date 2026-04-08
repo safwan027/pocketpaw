@@ -106,14 +106,14 @@ from pocketpaw.tunnel import get_tunnel_manager
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: FastAPI):
     # startup
-    await _startup_event(_start_channel_adapter_fn=_start_channel_adapter)
+    await _startup_event()
 
     yield
 
     # shutdown
-    await _shutdown_event(_stop_channel_adapter_fn=_stop_channel_adapter)
+    await _shutdown_event()
 
 
 logger = logging.getLogger(__name__)
