@@ -234,12 +234,10 @@ app.add_middleware(
 )
 
 
-# @app.on_event("startup")
 async def startup_event():
     await _startup_event(_start_channel_adapter_fn=_start_channel_adapter)
 
 
-# @app.on_event("shutdown")
 async def shutdown_event():
     await _shutdown_event(_stop_channel_adapter_fn=_stop_channel_adapter)
 
