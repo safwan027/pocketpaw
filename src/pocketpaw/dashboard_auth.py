@@ -26,6 +26,53 @@ logger = logging.getLogger(__name__)
 auth_router = APIRouter()
 
 
+def _is_secure_request(request: Request) -> bool:
+    """Return True when request arrived through HTTPS (directly or via proxy).
+
+    `X-Forwarded-Proto` may contain a comma-separated chain added by multiple
+    proxies (e.g. ``"https,http"``). We inspect the first value because it
+    represents the protocol used by the original client at the edge.
+    """
+    if request.url.scheme == "https":
+        return True
+
+    raw_forwarded_proto = request.headers.get("x-forwarded-proto")
+    if not raw_forwarded_proto:
+        return False
+
+    first_hop_proto = raw_forwarded_proto.split(",", maxsplit=1)[0].strip().lower()
+    # `==` is a comparison (not assignment): this yields the bool expected by
+    # `set_cookie(..., secure=...)`.
+    is_https = first_hop_proto == "https"
+    return is_https
+def _audit_auth_event(
+    action: str,
+    request: Request | None = None,
+    status: str = "success",
+) -> None:
+    """Log an authentication event to the audit trail."""
+    try:
+        from pocketpaw.security.audit import AuditEvent, AuditSeverity, get_audit_logger
+
+        severity = AuditSeverity.ALERT if status == "block" else AuditSeverity.INFO
+        client_ip = ""
+        if request:
+            client_ip = request.client.host if request.client else "unknown"
+
+        get_audit_logger().log(
+            AuditEvent.create(
+                severity=severity,
+                actor="dashboard_user",
+                action=action,
+                target="auth",
+                status=status,
+                client_ip=client_ip,
+            )
+        )
+    except Exception:
+        pass  # Don't let audit failure break auth flow
+
+
 # ---------------------------------------------------------------------------
 # Localhost detection
 # ---------------------------------------------------------------------------
@@ -255,7 +302,7 @@ async def _auth_dispatch(request: Request) -> Response | None:
                     is_valid = True
                     request.state.api_key = record
             except Exception:
-                pass
+                logger.warning("API key validation raised an unexpected error", exc_info=True)
 
     # 5. Check OAuth2 access token (ppat_* prefix)
     if not is_valid:
@@ -280,7 +327,7 @@ async def _auth_dispatch(request: Request) -> Response | None:
                     is_valid = True
                     request.state.oauth_token = oauth_token
             except Exception:
-                pass
+                logger.warning("OAuth2 token validation raised an unexpected error", exc_info=True)
 
     # 6. Allow genuine localhost (not tunneled proxies)
     if not is_valid and _is_genuine_localhost(request):
@@ -362,7 +409,7 @@ async def cookie_login(request: Request):
             if get_oauth_server().verify_access_token(submitted) is not None:
                 is_valid = True
         except Exception:
-            pass
+            logger.warning("OAuth2 token verification error during login", exc_info=True)
     # Accept API keys (pp_*)
     if not is_valid and submitted.startswith("pp_") and not submitted.startswith("ppat_"):
         try:
@@ -371,14 +418,17 @@ async def cookie_login(request: Request):
             if get_api_key_manager().verify(submitted) is not None:
                 is_valid = True
         except Exception:
-            pass
+            logger.warning("API key verification error during login", exc_info=True)
 
     if not is_valid:
+        _audit_auth_event("login_failed", request, status="block")
         return JSONResponse(status_code=401, content={"detail": "Invalid access token"})
 
     settings = Settings.load()
     session_token = create_session_token(master, ttl_hours=settings.session_token_ttl_hours)
     max_age = settings.session_token_ttl_hours * 3600
+
+    _audit_auth_event("login_success", request, status="success")
 
     response = JSONResponse(content={"ok": True})
     response.set_cookie(
@@ -394,8 +444,9 @@ async def cookie_login(request: Request):
 
 
 @auth_router.post("/api/auth/logout")
-async def cookie_logout():
+async def cookie_logout(request: Request):
     """Clear the session cookie."""
+    _audit_auth_event("logout", request, status="success")
     response = JSONResponse(content={"ok": True})
     response.delete_cookie(key="pocketpaw_session", path="/")
     return response
@@ -438,8 +489,9 @@ async def get_qr_code(request: Request):
 
 
 @auth_router.post("/api/token/regenerate")
-async def regenerate_access_token():
+async def regenerate_access_token(request: Request):
     """Regenerate access token (invalidates old sessions)."""
     # This endpoint implies you are already authorized (middleware checks it)
     new_token = regenerate_token()
+    _audit_auth_event("token_regenerated", request, status="success")
     return {"token": new_token}

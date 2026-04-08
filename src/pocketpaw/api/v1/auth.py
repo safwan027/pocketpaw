@@ -22,9 +22,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Auth"])
 
 
+def _is_secure_request(request: Request) -> bool:
+    """Return True when request arrived through HTTPS (directly or via proxy).
+
+    `X-Forwarded-Proto` may contain a comma-separated chain added by multiple
+    proxies (e.g. ``"https,http"``). We inspect the first value because it
+    represents the protocol used by the original client at the edge.
+    """
+    if request.url.scheme == "https":
+        return True
+
+    raw_forwarded_proto = request.headers.get("x-forwarded-proto")
+    if not raw_forwarded_proto:
+        return False
+
+    first_hop_proto = raw_forwarded_proto.split(",", maxsplit=1)[0].strip().lower()
+    # `==` is a comparison (not assignment): this yields the bool expected by
+    # `set_cookie(..., secure=...)`.
+    is_https = first_hop_proto == "https"
+    return is_https
+
+
 @router.post("/auth/session", response_model=SessionTokenResponse)
 async def exchange_session_token(request: Request):
     """Exchange a master access token for a time-limited session token."""
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(client_ip):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
     from pocketpaw.config import Settings, get_access_token
     from pocketpaw.security.session_tokens import create_session_token
 
@@ -50,6 +77,12 @@ async def cookie_login(request: Request):
 
     Accepts master access token, OAuth2 token (ppat_*), or API key (pp_*).
     """
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(client_ip):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
     from pocketpaw.config import Settings, get_access_token
     from pocketpaw.security.session_tokens import create_session_token
 
@@ -112,6 +145,12 @@ async def cookie_logout():
 @router.get("/qr")
 async def get_qr_code(request: Request):
     """Generate QR login code."""
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(client_ip):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
     import qrcode
 
     from pocketpaw.config import get_access_token
