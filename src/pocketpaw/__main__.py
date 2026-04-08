@@ -17,6 +17,7 @@ Changes:
   - 2026-02-02: Added Rich logging for beautiful console output.
   - 2026-02-03: Handle port-in-use gracefully with automatic port finding.
 """
+
 # Force UTF-8 encoding on Windows before any imports that might produce output
 import os
 import sys
