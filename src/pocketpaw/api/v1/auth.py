@@ -45,6 +45,12 @@ def _is_secure_request(request: Request) -> bool:
 @router.post("/auth/session", response_model=SessionTokenResponse)
 async def exchange_session_token(request: Request):
     """Exchange a master access token for a time-limited session token."""
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(client_ip):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
     from pocketpaw.config import Settings, get_access_token
     from pocketpaw.security.session_tokens import create_session_token
 
@@ -70,6 +76,12 @@ async def cookie_login(request: Request):
 
     Accepts master access token, OAuth2 token (ppat_*), or API key (pp_*).
     """
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(client_ip):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
     from pocketpaw.config import Settings, get_access_token
     from pocketpaw.security.session_tokens import create_session_token
 
@@ -132,6 +144,12 @@ async def cookie_logout():
 @router.get("/qr")
 async def get_qr_code(request: Request):
     """Generate QR login code."""
+    from pocketpaw.security.rate_limiter import auth_limiter
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not auth_limiter.allow(client_ip):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
     import qrcode
 
     from pocketpaw.config import get_access_token
