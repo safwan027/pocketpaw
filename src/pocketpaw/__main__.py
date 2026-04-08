@@ -1,6 +1,7 @@
 """PocketPaw entry point.
 
 Changes:
+  - 2026-04-07: Auto-detect free port in range 8000-9000 if requested port is busy.
   - 2026-03-18: Added CLI subcommands: doctor, health, channels, skills,
                 sessions, memory, config, errors, logs.
   - 2026-02-20: Extracted diagnostics to diagnostics.py, headless runners to headless.py.
@@ -16,7 +17,6 @@ Changes:
   - 2026-02-02: Added Rich logging for beautiful console output.
   - 2026-02-03: Handle port-in-use gracefully with automatic port finding.
 """
-
 # Force UTF-8 encoding on Windows before any imports that might produce output
 import os
 import sys
@@ -60,6 +60,15 @@ def _run_async(coro):
 # Setup beautiful logging with Rich
 setup_logging(level="INFO")
 logger = logging.getLogger(__name__)
+
+
+def _check_python_version() -> None:
+    """Warn if running on an unsupported Python version."""
+    if sys.version_info[:2] >= (3, 14):
+        sys.stderr.write(
+            "Warning: Python 3.14+ may not be fully supported. "
+            "Recommended version is 3.11 or 3.12.\n"
+        )
 
 
 def run_dashboard_mode(settings: Settings, host: str, port: int, dev: bool = False) -> None:
@@ -412,7 +421,7 @@ def _serve(
             fn(*args, port=current_port, host=host, **kwargs)
             return
         except OSError as e:
-            if e.errno in (_errno.EADDRINUSE, 10048):
+            if e.errno in (_errno.EADDRINUSE, 10048):  # 10048 = Windows WSAEADDRINUSE
                 next_port = current_port + 1
                 print(f"\n  [WARN] Port {current_port} taken at bind — trying {next_port}\n")
                 current_port = next_port
@@ -425,6 +434,7 @@ def _serve(
 
 def main() -> None:
     """Main entry point."""
+    _check_python_version()
     parser = _build_parser()
     args = parser.parse_args()
     _resolve_subargs(args)
