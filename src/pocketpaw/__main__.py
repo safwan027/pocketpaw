@@ -62,6 +62,15 @@ def _run_async(coro):
 setup_logging(level="INFO")
 logger = logging.getLogger(__name__)
 
+def _check_python_version() -> None:
+    """Warn if running on an unsupported Python version."""
+    if sys.version_info[:2] >= (3, 14):
+        sys.stderr.write(
+            "Warning: Python 3.14+ may not be fully supported. "
+            "Recommended version is 3.11 or 3.12.\n"
+        )
+
+        
 def run_dashboard_mode(settings: Settings, host: str, port: int, dev: bool = False) -> None:
     """Run in web dashboard mode."""
     from pocketpaw.dashboard import run_dashboard
@@ -392,7 +401,7 @@ def _serve(
             fn(*args, port=current_port, host=host, **kwargs)
             return
         except OSError as e:
-            if e.errno in (_errno.EADDRINUSE, 10048):  # 10048 = WSAEADDRINUSE (Windows: address already in use)
+            if e.errno in (_errno.EADDRINUSE, 10048):  # 10048 = WSAEADDRINUSE (Windows)
                 next_port = current_port + 1
                 print(f"\n  [WARN] Port {current_port} taken at bind — trying {next_port}\n")
                 current_port = next_port
