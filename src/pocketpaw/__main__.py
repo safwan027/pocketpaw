@@ -328,7 +328,11 @@ Examples:
 
 
 def _resolve_subargs(args) -> None:
-    """Parse positional subargs into named attributes based on the command."""
+    """Parse positional subargs into named attributes based on the command.
+
+    Transforms: pocketpaw channels start discord
+    Into: args.subaction="start", args.query="discord"
+    """
     subargs = args.subargs or []
     args.subaction = None
     args.query = None
@@ -520,12 +524,11 @@ def main() -> None:
         or args.gchat
     )
 
-    effective_port = args.port
     try:
         if args.command == "serve":
             from pocketpaw.api.serve import run_api_server
 
-            _serve(run_api_server, host=host, port=effective_port, dev=args.dev)
+            _serve(run_api_server, host=host, port=args.port, dev=args.dev)
         elif args.command == "status":
             from pocketpaw.cli.status import run_status
 
@@ -557,7 +560,7 @@ def main() -> None:
             _run_async(run_multi_channel_mode(settings, args))
         else:
             # Default: web dashboard (also handles --web flag)
-            _serve(run_dashboard_mode, settings, host=host, port=effective_port, dev=args.dev)
+            _serve(run_dashboard_mode, settings, host=host, port=args.port, dev=args.dev)
     except KeyboardInterrupt:
         logger.info("PocketPaw stopped.")
     finally:
