@@ -324,7 +324,9 @@ class AgentLoop:
                 engine = PocketPawCognitiveEngine(
                     backend_provider=lambda: (
                         self._get_router()._backend if self._router is not None else None
-                    )
+                    ),
+                    model=settings.soul_cognitive_model,
+                    api_key=settings.anthropic_api_key or "",
                 )
 
                 self._soul_manager = SoulManager(settings)
