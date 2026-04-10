@@ -134,8 +134,6 @@ async def get_concept_articles(
 ) -> dict:
     """Get all articles associated with a concept."""
     scope = _scope(workspace_id)
-    # Search by concept name — kb doesn't have a direct concept lookup,
-    # so we search and filter
     results = _kb("search", name, "--scope", scope, "--limit", "20")
     if not isinstance(results, list):
         results = []
@@ -183,6 +181,4 @@ async def list_concepts(
     """List all concepts."""
     scope = _scope(workspace_id)
     stats = _kb("stats", "--scope", scope)
-    # kb stats returns concept count but not the full concept list
-    # Return stats-level info
     return {"concepts": stats.get("concepts", 0) if isinstance(stats, dict) else 0}
