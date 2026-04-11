@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from pocketpaw.config import get_access_token, get_config_dir
+from pocketpaw.config import get_access_token
 
 # Import app and config logic
 from pocketpaw.dashboard import app
