@@ -244,6 +244,7 @@ enterprise = [
     "google-api-python-client>=2.100.0",
     "google-auth>=2.25.0",
     "google-auth-oauthlib>=1.2.0",
+    "pocketpaw[soul]"
 ]
 all = [
     # browser
