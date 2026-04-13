@@ -102,7 +102,8 @@ class PawPrintStore:
         async with self._conn() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM paw_print_widgets WHERE id = ?", (widget_id,),
+                "SELECT * FROM paw_print_widgets WHERE id = ?",
+                (widget_id,),
             ) as cur:
                 row = await cur.fetchone()
                 return self._row_to_widget(row) if row else None
@@ -130,9 +131,7 @@ class PawPrintStore:
             ) as cur:
                 return [self._row_to_widget(row) async for row in cur]
 
-    async def update_spec(
-        self, widget_id: str, spec: PawPrintSpec
-    ) -> PawPrintWidget | None:
+    async def update_spec(self, widget_id: str, spec: PawPrintSpec) -> PawPrintWidget | None:
         existing = await self.get_widget(widget_id)
         if existing is None:
             return None
@@ -163,7 +162,8 @@ class PawPrintStore:
         await self._ensure_schema()
         async with self._conn() as db:
             cur = await db.execute(
-                "DELETE FROM paw_print_widgets WHERE id = ?", (widget_id,),
+                "DELETE FROM paw_print_widgets WHERE id = ?",
+                (widget_id,),
             )
             await db.commit()
             return (cur.rowcount or 0) > 0
@@ -188,9 +188,7 @@ class PawPrintStore:
             await db.commit()
         return event
 
-    async def recent_events(
-        self, widget_id: str, limit: int = 100
-    ) -> list[PawPrintEvent]:
+    async def recent_events(self, widget_id: str, limit: int = 100) -> list[PawPrintEvent]:
         await self._ensure_schema()
         async with self._conn() as db:
             db.row_factory = aiosqlite.Row
@@ -238,7 +236,9 @@ class PawPrintStore:
         if total >= overall_per_min:
             return False
         per_customer = await self.count_events_since(
-            widget_id, window_start, customer_ref=customer_ref,
+            widget_id,
+            window_start,
+            customer_ref=customer_ref,
         )
         return per_customer < per_customer_per_min
 

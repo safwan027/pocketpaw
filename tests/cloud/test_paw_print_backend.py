@@ -277,9 +277,7 @@ class TestEventStore:
         assert allowed_other is True
 
     @pytest.mark.asyncio
-    async def test_within_rate_limit_respects_overall_ceiling(
-        self, store: PawPrintStore
-    ) -> None:
+    async def test_within_rate_limit_respects_overall_ceiling(self, store: PawPrintStore) -> None:
         widget = await store.create_widget(_widget())
         now = datetime.now()
         for i in range(5):

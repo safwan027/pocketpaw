@@ -116,7 +116,7 @@ class TraceCollector:
         args_hash = _hash_args(args)
         preview = str(result)
         if len(preview) > _PREVIEW_CHARS:
-            preview = preview[:_PREVIEW_CHARS - 3] + "..."
+            preview = preview[: _PREVIEW_CHARS - 3] + "..."
 
         # Dedupe identical tool+args pairs within a single trace.
         for existing in self.trace.tool_calls:

@@ -156,7 +156,8 @@ class TestSpecEndpoint:
 
     def test_empty_allowlist_allows_any_origin(self, client: TestClient) -> None:
         created = client.post(
-            "/paw-print/widgets", json=_widget_payload(allowed_domains=[]),
+            "/paw-print/widgets",
+            json=_widget_payload(allowed_domains=[]),
         ).json()
         res = client.get(
             f"/paw-print/spec/{created['id']}",
@@ -171,9 +172,7 @@ class TestSpecEndpoint:
 
 
 class TestEventIngest:
-    def test_ingest_happy_path_records_event(
-        self, app_with_store, client: TestClient
-    ) -> None:
+    def test_ingest_happy_path_records_event(self, app_with_store, client: TestClient) -> None:
         _, store = app_with_store
         created = client.post("/paw-print/widgets", json=_widget_payload()).json()
 
@@ -243,7 +242,8 @@ class TestEventIngest:
             return False
 
         monkeypatch.setattr(
-            "ee.paw_print.router._pass_through_guardian", AsyncMock(return_value=False),
+            "ee.paw_print.router._pass_through_guardian",
+            AsyncMock(return_value=False),
         )
         created = client.post("/paw-print/widgets", json=_widget_payload()).json()
         res = client.post(
@@ -256,9 +256,7 @@ class TestEventIngest:
         assert body["accepted"] is False
         assert body["reason"] == "guardian_rejected"
 
-    def test_event_mapping_creates_fabric_object(
-        self, client: TestClient, monkeypatch
-    ) -> None:
+    def test_event_mapping_creates_fabric_object(self, client: TestClient, monkeypatch) -> None:
         fabric = MagicMock()
         created_obj = MagicMock()
         created_obj.id = "obj_created_123"
@@ -291,7 +289,9 @@ class TestEventIngest:
             }
             obj = fabric.create_object(
                 _FakeFabricObject(
-                    type_name="Order", properties=props, source_connector="paw_print",
+                    type_name="Order",
+                    properties=props,
+                    source_connector="paw_print",
                 ),
             )
             awaited = await obj if hasattr(obj, "__await__") else obj

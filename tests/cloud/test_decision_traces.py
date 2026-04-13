@@ -295,9 +295,7 @@ class TestFabricSnapshotStore:
         assert [r.object_id for r in rows] == ["a", "b"]
 
     @pytest.mark.asyncio
-    async def test_snapshots_for_object_orders_newest_first(
-        self, store: InstinctStore
-    ) -> None:
+    async def test_snapshots_for_object_orders_newest_first(self, store: InstinctStore) -> None:
         older = FabricObjectSnapshot(object_id="obj_x", audit_id="aud_1")
         newer = FabricObjectSnapshot(object_id="obj_x", audit_id="aud_2")
         await store.record_fabric_snapshot(older)

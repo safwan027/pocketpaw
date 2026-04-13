@@ -327,9 +327,7 @@ async def _pass_through_guardian(event: PawPrintEvent) -> bool:
     return not getattr(verdict, "blocked", False)
 
 
-async def _apply_event_mapping(
-    widget: PawPrintWidget, event: PawPrintEvent
-) -> str | None:
+async def _apply_event_mapping(widget: PawPrintWidget, event: PawPrintEvent) -> str | None:
     """Turn a PawPrintEvent into a Fabric object when a mapping exists."""
     mapping = widget.event_mapping.get(event.type)
     if mapping is None:

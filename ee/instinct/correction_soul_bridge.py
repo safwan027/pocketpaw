@@ -81,9 +81,7 @@ class CorrectionSoulBridge:
         except Exception:
             logger.exception("Failed to observe correction — continuing without soul record")
 
-    async def _maybe_promote_to_procedural(
-        self, soul: object, correction: Correction
-    ) -> None:
+    async def _maybe_promote_to_procedural(self, soul: object, correction: Correction) -> None:
         """When a path has been corrected _PROMOTION_THRESHOLD times, synthesize a rule."""
         if not hasattr(soul, "remember"):
             return

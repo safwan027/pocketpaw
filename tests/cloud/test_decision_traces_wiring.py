@@ -49,9 +49,7 @@ def client(app_with_store):
 
 class TestProposeWithTrace:
     @pytest.mark.asyncio
-    async def test_reasoning_trace_lands_in_audit_context(
-        self, store: InstinctStore
-    ) -> None:
+    async def test_reasoning_trace_lands_in_audit_context(self, store: InstinctStore) -> None:
         trace = ReasoningTrace(
             fabric_queries=["obj_acme"],
             soul_memories=["mem_q4_pricing"],
@@ -81,9 +79,7 @@ class TestProposeWithTrace:
         assert decoded.backend == "claude_agent_sdk"
 
     @pytest.mark.asyncio
-    async def test_fabric_snapshots_are_keyed_to_the_audit_row(
-        self, store: InstinctStore
-    ) -> None:
+    async def test_fabric_snapshots_are_keyed_to_the_audit_row(self, store: InstinctStore) -> None:
         snapshots = [
             FabricObjectSnapshot(
                 object_id="obj_acme",
@@ -201,9 +197,7 @@ class TestHydrationEndpoint:
         assert body["fabric_current"] == []
 
     @pytest.mark.asyncio
-    async def test_hydrate_one_returns_snapshots(
-        self, app_with_store, client: TestClient
-    ) -> None:
+    async def test_hydrate_one_returns_snapshots(self, app_with_store, client: TestClient) -> None:
         _, store = app_with_store
         await store.propose(
             pocket_id="pocket-1",
