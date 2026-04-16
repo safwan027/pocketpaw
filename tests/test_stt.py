@@ -242,7 +242,10 @@ async def test_elevenlabs_stt_success(tmp_path):
     mock_resp.json.return_value = {"text": "Hello from ElevenLabs STT"}
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings):
+    with (
+        patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings),
+        patch("pocketpaw.tools.builtin.stt.is_safe_path", return_value=True),
+    ):
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=mock_resp)
@@ -283,7 +286,10 @@ async def test_elevenlabs_stt_with_language(tmp_path):
     mock_resp.json.return_value = {"text": "Hola desde ElevenLabs"}
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings):
+    with (
+        patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings),
+        patch("pocketpaw.tools.builtin.stt.is_safe_path", return_value=True),
+    ):
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=mock_resp)
@@ -315,7 +321,10 @@ async def test_elevenlabs_stt_no_api_key(tmp_path):
     mock_settings.stt_provider = "elevenlabs"
     mock_settings.elevenlabs_api_key = None
 
-    with patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings):
+    with (
+        patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings),
+        patch("pocketpaw.tools.builtin.stt.is_safe_path", return_value=True),
+    ):
         result = await tool.execute(audio_file=str(audio_file))
 
     assert result.startswith("Error:")
@@ -341,7 +350,10 @@ async def test_elevenlabs_stt_api_error(tmp_path):
     mock_resp.status_code = 401
     mock_resp.request = MagicMock()
 
-    with patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings):
+    with (
+        patch("pocketpaw.tools.builtin.stt.get_settings", return_value=mock_settings),
+        patch("pocketpaw.tools.builtin.stt.is_safe_path", return_value=True),
+    ):
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(
