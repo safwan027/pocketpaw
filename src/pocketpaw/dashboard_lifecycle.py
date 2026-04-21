@@ -20,6 +20,7 @@ from pocketpaw.dashboard_state import (
     _channel_autostart_enabled,
     active_connections,
     agent_loop,
+    trace_collector,
     ws_adapter,
 )
 from pocketpaw.scheduler import get_scheduler
@@ -205,6 +206,15 @@ async def startup_event(
     status_tracker._max_concurrent = settings.max_concurrent_conversations
     await status_tracker.subscribe()
     _register_lifecycle("status_tracker", shutdown=status_tracker.unsubscribe)
+
+    await trace_collector.subscribe()
+    _register_lifecycle("trace_collector", shutdown=trace_collector.unsubscribe)
+    try:
+        removed = await trace_collector.cleanup_retention(settings.trace_retention_days)
+        if removed:
+            logger.info("Trace retention cleanup removed %d file(s)", removed)
+    except Exception:
+        logger.debug("Trace retention cleanup failed", exc_info=True)
     if _start_channel_adapter_fn:
         for ch in (
             "discord",
@@ -366,6 +376,21 @@ async def startup_event(
                 logger.debug("Rate limiter cleanup: removed %d stale entries", removed)
 
     asyncio.create_task(_rate_limit_cleanup_loop())
+
+    async def _trace_retention_cleanup_loop():
+        while True:
+            await asyncio.sleep(21600)
+            try:
+                current_settings = Settings.load()
+                removed = await trace_collector.cleanup_retention(
+                    current_settings.trace_retention_days
+                )
+                if removed:
+                    logger.debug("Trace retention cleanup removed %d stale file(s)", removed)
+            except Exception:
+                logger.debug("Trace retention cleanup loop failed", exc_info=True)
+
+    asyncio.create_task(_trace_retention_cleanup_loop())
 
     # Open browser now that the server is actually listening
     if _state._open_browser_url:

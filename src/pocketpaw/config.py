@@ -612,6 +612,54 @@ class Settings(BaseSettings):
         description="Tools that require approval in plan mode",
     )
 
+    # Budget Controls
+    budget_monthly_usd: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Monthly budget cap in USD. 0 = unlimited",
+    )
+    budget_warning_threshold: float = Field(
+        default=0.8,
+        gt=0.0,
+        le=1.0,
+        description="Warn when spend crosses this fraction of budget (0.8 = 80%)",
+    )
+    budget_auto_pause: bool = Field(
+        default=True,
+        description="Auto-pause agent processing when budget is exhausted",
+    )
+    budget_reset_day: int = Field(
+        default=1,
+        ge=1,
+        le=28,
+        description="Day of month when the budget window resets (1-28)",
+    )
+    budget_paused: bool = Field(
+        default=False,
+        description="Internal flag set when budget exhaustion auto-pauses the agent",
+    )
+    budget_override_usd: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Temporary budget override cap in USD (None = no override)",
+    )
+    budget_override_reason: str = Field(
+        default="",
+        description="Reason for the active budget override",
+    )
+    budget_override_expires_at: str | None = Field(
+        default=None,
+        description="ISO timestamp when the temporary budget override expires",
+    )
+
+    # Trace retention
+    trace_retention_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="How many days of trace files to keep",
+    )
+
     # Self-Audit Daemon
     self_audit_enabled: bool = Field(default=True, description="Enable daily self-audit daemon")
     self_audit_schedule: str = Field(
