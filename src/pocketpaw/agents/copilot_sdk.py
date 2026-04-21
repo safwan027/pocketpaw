@@ -18,6 +18,7 @@ from typing import Any
 from pocketpaw.agents.backend import _DEFAULT_IDENTITY, BackendInfo, Capability
 from pocketpaw.agents.protocol import AgentEvent
 from pocketpaw.config import Settings
+from pocketpaw.tools.policy import ToolPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,11 @@ class CopilotSDKBackend:
         self._sdk_available = False
         self._client: Any = None
         self._sessions: dict[str, Any] = {}
+        self._policy = ToolPolicy(
+            profile=settings.tool_profile,
+            allow=settings.tools_allow,
+            deny=settings.tools_deny,
+        )
 
         try:
             import copilot  # noqa: F401
@@ -79,6 +85,12 @@ class CopilotSDKBackend:
             )
         elif not self._sdk_available:
             logger.warning("Copilot SDK not found — install with: pip install github-copilot-sdk")
+
+    def get_tool_policy(self) -> ToolPolicy:
+        return self._policy
+
+    def set_tool_policy(self, policy: ToolPolicy) -> None:
+        self._policy = policy
 
     @staticmethod
     def _inject_history(instruction: str, history: list[dict]) -> str:

@@ -2,6 +2,8 @@
 
 import inspect
 
+import pytest
+
 from pocketpaw.agents.backend import _DEFAULT_IDENTITY, AgentBackend, BackendInfo, Capability
 
 
@@ -97,3 +99,39 @@ class TestAgentBackendProtocol:
         param = sig.parameters["session_key"]
         assert param.default is None
         assert param.kind == inspect.Parameter.KEYWORD_ONLY
+
+
+class TestToolPolicyProtocol:
+    """get_tool_policy / set_tool_policy are present on every backend class."""
+
+    BACKEND_CLASSES = [
+        "pocketpaw.agents.claude_sdk.ClaudeSDKBackend",
+        "pocketpaw.agents.openai_agents.OpenAIAgentsBackend",
+        "pocketpaw.agents.google_adk.GoogleADKBackend",
+        "pocketpaw.agents.codex_cli.CodexCLIBackend",
+        "pocketpaw.agents.opencode.OpenCodeBackend",
+        "pocketpaw.agents.copilot_sdk.CopilotSDKBackend",
+        "pocketpaw.agents.deep_agents.DeepAgentsBackend",
+    ]
+
+    @pytest.mark.parametrize("dotted_path", BACKEND_CLASSES)
+    def test_has_get_tool_policy(self, dotted_path):
+        import importlib
+
+        module_path, cls_name = dotted_path.rsplit(".", 1)
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        assert callable(getattr(cls, "get_tool_policy", None)), (
+            f"{cls_name} missing get_tool_policy()"
+        )
+
+    @pytest.mark.parametrize("dotted_path", BACKEND_CLASSES)
+    def test_has_set_tool_policy(self, dotted_path):
+        import importlib
+
+        module_path, cls_name = dotted_path.rsplit(".", 1)
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+        assert callable(getattr(cls, "set_tool_policy", None)), (
+            f"{cls_name} missing set_tool_policy()"
+        )

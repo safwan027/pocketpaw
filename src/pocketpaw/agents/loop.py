@@ -765,15 +765,15 @@ class AgentLoop:
             # 3. Run through AgentRouter (handles all backends)
             router = self._get_router()
             _saved_policy = None
-            if pocket_deny_tools and hasattr(router, "_registry") and router._registry:
+            if pocket_deny_tools and router._backend is not None:
                 from pocketpaw.tools.policy import ToolPolicy
 
-                _saved_policy = router._registry._policy  # Save to restore after request
+                _saved_policy = router._backend.get_tool_policy()  # Save to restore after request
                 scoped_policy = ToolPolicy(
                     profile=self.settings.tool_profile or "full",
                     deny=pocket_deny_tools,
                 )
-                router._registry.set_policy(scoped_policy)
+                router._backend.set_tool_policy(scoped_policy)
 
             full_response = ""
             media_paths: list[str] = []
@@ -944,8 +944,8 @@ class AgentLoop:
             finally:
                 await run_iter.aclose()
                 # Restore global tool policy after per-pocket scoped request
-                if _saved_policy is not None and hasattr(router, "_registry") and router._registry:
-                    router._registry.set_policy(_saved_policy)
+                if _saved_policy is not None and router._backend is not None:
+                    router._backend.set_tool_policy(_saved_policy)
 
             # 4. Send stream end marker (with any media files detected)
             # Fallback: if no media tags found in tool_result chunks,
