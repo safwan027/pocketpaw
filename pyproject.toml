@@ -117,7 +117,7 @@ memory = [
     "ollama>=0.6.1",
 ]
 soul = [
-    "soul-protocol[engine]>=0.2.9",
+    "soul-protocol[engine]>=0.3.0",
 ]
 
 # --- Channel extras ---
@@ -232,7 +232,7 @@ all-tools = [
     # graph
     "networkx>=3.0",
     # soul
-    "soul-protocol[engine]>=0.2.9",
+    "soul-protocol[engine]>=0.3.0",
 ]
 all-backends = [
     "pocketpaw[openai-agents,google-adk,copilot-sdk,deep-agents,litellm]",
@@ -259,6 +259,7 @@ enterprise = [
     "google-api-python-client>=2.100.0",
     "google-auth>=2.25.0",
     "google-auth-oauthlib>=1.2.0",
+    "pocketpaw[soul]"
 ]
 all = [
     # browser
@@ -288,7 +289,7 @@ all = [
     "sarvamai>=0.1.25",
     "mcp>=1.0.0",
     # soul
-    "soul-protocol[engine]>=0.2.9",
+    "soul-protocol[engine]>=0.3.0",
     # backends
     "openai-agents>=0.2.0",
     "google-adk>=1.0.0",

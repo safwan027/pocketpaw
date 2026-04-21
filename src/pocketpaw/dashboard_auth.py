@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from pocketpaw.config import Settings, get_access_token, regenerate_token
 from pocketpaw.dashboard_state import _LOCALHOST_ADDRS, _PROXY_HEADERS
+from pocketpaw.http_utils import is_request_secure
 from pocketpaw.security.rate_limiter import api_limiter, auth_limiter
 from pocketpaw.security.session_tokens import create_session_token, verify_session_token
 from pocketpaw.tunnel import get_tunnel_manager
@@ -107,8 +108,12 @@ async def verify_token(
     """
     from fastapi import HTTPException
 
-    # SKIP AUTH for static files and health checks (if any)
-    if request.url.path.startswith("/static") or request.url.path == "/favicon.ico":
+    # SKIP AUTH for static files, uploads, and health checks (if any)
+    if (
+        request.url.path.startswith("/static")
+        or request.url.path.startswith("/uploads")
+        or request.url.path == "/favicon.ico"
+    ):
         return True
 
     # Check query param
@@ -315,6 +320,7 @@ async def _auth_dispatch(request: Request) -> Response | None:
     # Exempt routes — return None to let the request through
     exempt_paths = [
         "/static",
+        "/uploads",
         "/favicon.ico",
         # NOTE: /ws, /v1/ws, /api/v1/ws are no longer exempted here — WebSocket
         # scopes are now authenticated at the middleware level (issue #883).
@@ -460,8 +466,12 @@ async def _auth_dispatch(request: Request) -> Response | None:
     if not is_valid and _is_genuine_localhost(request):
         is_valid = True
 
-    # Allow frontend assets (/, /static/*) through for SPA bootstrap.
-    if request.url.path == "/" or request.url.path.startswith("/static/"):
+    # Allow frontend assets (/, /static/*, /uploads/*) through for SPA bootstrap.
+    if (
+        request.url.path == "/"
+        or request.url.path.startswith("/static/")
+        or request.url.path.startswith("/uploads/")
+    ):
         return None  # allow through
 
     # Require auth for ALL remaining paths — not only /api* and /ws*.
@@ -565,6 +575,7 @@ async def cookie_login(request: Request):
         samesite="lax",
         path="/",
         max_age=max_age,
+        secure=is_request_secure(request),
     )
     return response
 
