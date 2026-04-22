@@ -25,8 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, Field
-from pydantic import AliasChoices
+from pydantic import AfterValidator, AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pocketpaw.security.url_validators import validate_external_url
