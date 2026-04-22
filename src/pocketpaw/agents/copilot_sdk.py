@@ -90,6 +90,9 @@ class CopilotSDKBackend:
         return self._policy
 
     def set_tool_policy(self, policy: ToolPolicy) -> None:
+        # Policy is stored but never enforced — Copilot runs tools inside an
+        # external CLI process that has no awareness of this policy.
+        logger.debug("set_tool_policy on CopilotSDKBackend: stored but not enforced (external CLI)")
         self._policy = policy
 
     @staticmethod

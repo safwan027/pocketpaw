@@ -67,6 +67,11 @@ class OpenCodeBackend:
         return self._policy
 
     def set_tool_policy(self, policy: ToolPolicy) -> None:
+        # Policy is stored but never enforced — OpenCode runs tools inside an
+        # external server process that has no awareness of this policy.
+        logger.debug(
+            "set_tool_policy on OpenCodeBackend: stored but not enforced (external server)"
+        )
         self._policy = policy
 
     def _get_client(self) -> httpx.AsyncClient:

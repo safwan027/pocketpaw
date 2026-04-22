@@ -135,3 +135,50 @@ class TestToolPolicyProtocol:
         assert callable(getattr(cls, "set_tool_policy", None)), (
             f"{cls_name} missing set_tool_policy()"
         )
+
+    @pytest.mark.parametrize("dotted_path", BACKEND_CLASSES)
+    def test_round_trip(self, dotted_path):
+        """set_tool_policy(p) then get_tool_policy() must return the exact same object."""
+        import importlib
+
+        from pocketpaw.tools.policy import ToolPolicy
+
+        module_path, cls_name = dotted_path.rsplit(".", 1)
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+
+        instance = cls.__new__(cls)
+        policy = ToolPolicy(profile="full", deny=["group:shell"])
+        instance.set_tool_policy(policy)
+        assert instance.get_tool_policy() is policy, (
+            f"{cls_name}.get_tool_policy() did not return the policy passed to set_tool_policy()"
+        )
+
+    @pytest.mark.parametrize(
+        "dotted_path,extra_cache_attrs",
+        [
+            ("pocketpaw.agents.openai_agents.OpenAIAgentsBackend", ["_custom_tools"]),
+            ("pocketpaw.agents.google_adk.GoogleADKBackend", ["_custom_tools"]),
+            ("pocketpaw.agents.deep_agents.DeepAgentsBackend", ["_custom_tools", "_mcp_tools"]),
+        ],
+    )
+    def test_cache_invalidation_on_set(self, dotted_path, extra_cache_attrs):
+        """set_tool_policy must clear tool caches so the next build picks up the new policy."""
+        import importlib
+
+        from pocketpaw.tools.policy import ToolPolicy
+
+        module_path, cls_name = dotted_path.rsplit(".", 1)
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, cls_name)
+
+        instance = cls.__new__(cls)
+        for attr in extra_cache_attrs:
+            setattr(instance, attr, ["cached_tool"])
+
+        instance.set_tool_policy(ToolPolicy(profile="full", deny=["group:shell"]))
+
+        for attr in extra_cache_attrs:
+            assert getattr(instance, attr) is None, (
+                f"{cls_name}.set_tool_policy() did not clear {attr}"
+            )

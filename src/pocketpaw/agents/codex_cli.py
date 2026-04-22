@@ -91,6 +91,9 @@ class CodexCLIBackend:
         return self._policy
 
     def set_tool_policy(self, policy: ToolPolicy) -> None:
+        # Policy is stored but never enforced — Codex runs tools inside an
+        # external CLI process that has no awareness of this policy.
+        logger.debug("set_tool_policy on CodexCLIBackend: stored but not enforced (external CLI)")
         self._policy = policy
 
     @staticmethod
