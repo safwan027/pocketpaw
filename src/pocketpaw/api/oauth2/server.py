@@ -223,6 +223,8 @@ class AuthorizationServer:
         return token
 
 
+
+
 # Singleton
 _server: AuthorizationServer | None = None
 
