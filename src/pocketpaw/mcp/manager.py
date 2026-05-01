@@ -135,7 +135,7 @@ def set_oauth_callback_result(state: str, code: str) -> bool:
         return True
     logger.warning("No pending OAuth flow for state=%s", state[:16])
     return False
-
+    
 
 @dataclass
 class MCPToolInfo:
